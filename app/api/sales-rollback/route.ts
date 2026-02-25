@@ -47,6 +47,15 @@ async function writeLedger(ledger: SalesLedger) {
   await fs.writeFile(LEDGER_PATH, JSON.stringify(ledger, null, 2), "utf8");
 }
 
+async function tryWriteLedger(ledger: SalesLedger): Promise<string | null> {
+  try {
+    await writeLedger(ledger);
+    return null;
+  } catch (e: any) {
+    return `롤백 이력 저장 실패: ${e?.message ?? String(e)}`;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -99,7 +108,7 @@ export async function POST(req: NextRequest) {
       batch.rolled_back_at = new Date().toISOString();
     }
 
-    await writeLedger(ledger);
+    const ledgerWriteWarning = await tryWriteLedger(ledger);
 
     return NextResponse.json({
       ok: true,
@@ -107,6 +116,7 @@ export async function POST(req: NextRequest) {
       rolledBackBatches: target.length,
       rolledBackMembers,
       batchIds: target.map((b) => b.batch_id),
+      warning: ledgerWriteWarning,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });

@@ -67,6 +67,15 @@ async function writeLedger(ledger: SalesLedger) {
   await fs.writeFile(LEDGER_PATH, JSON.stringify(ledger, null, 2), "utf8");
 }
 
+async function tryWriteLedger(ledger: SalesLedger): Promise<string | null> {
+  try {
+    await writeLedger(ledger);
+    return null;
+  } catch (e: any) {
+    return `매출 이력 저장 실패(중복방지/롤백 이력): ${e?.message ?? String(e)}`;
+  }
+}
+
 function salesFingerprint(salesMap: Map<number, number>) {
   const normalized = Array.from(salesMap.entries())
     .sort((a, b) => a[0] - b[0])
@@ -379,7 +388,7 @@ export async function POST(req: NextRequest) {
       rolled_back_at: null,
     };
     ledger.batches.push(batch);
-    await writeLedger(ledger);
+    const ledgerWriteWarning = await tryWriteLedger(ledger);
 
     // pv_ledger 기록 (테이블/컬럼이 없으면 경고만 남기고 진행)
     let ledgerWarning: string | null = null;
@@ -429,7 +438,7 @@ export async function POST(req: NextRequest) {
       tierAchieved,
       trace,
       changedPreview,
-      warning: [warning, ledgerWarning, envWarning].filter(Boolean).join(" / ") || null,
+      warning: [warning, ledgerWarning, envWarning, ledgerWriteWarning].filter(Boolean).join(" / ") || null,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
