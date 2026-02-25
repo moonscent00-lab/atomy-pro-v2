@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "batches": [
+    {
+      "batch_id": "1772005687337-1d29oc",
+      "created_at": "2026-02-25T07:48:07.337Z",
+      "fingerprint": "3ff42481d124630bfa0e9d6431d962d350686444e4fa88b5d1c86599e8b0a5ff",
+      "entries": [
+        {
+          "member_id": 47118351,
+          "pv": 34000
+        }
+      ],
+      "snapshots_before": [
+        {
+          "member_id": 47118351,
+          "cumulative_pv": 572700,
+          "left_line_pv": 0,
+          "right_line_pv": 0,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 45719002,
+          "cumulative_pv": 729500,
+          "left_line_pv": 0,
+          "right_line_pv": 99000,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 45275289,
+          "cumulative_pv": 323400,
+          "left_line_pv": 0,
+          "right_line_pv": 99000,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 44953943,
+          "cumulative_pv": 300500,
+          "left_line_pv": 99000,
+          "right_line_pv": 0,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 43713299,
+          "cumulative_pv": 757800,
+          "left_line_pv": 0,
+          "right_line_pv": 99000,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 38352561,
+          "cumulative_pv": 325100,
+          "left_line_pv": 99000,
+          "right_line_pv": 0,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 31919401,
+          "cumulative_pv": 751690,
+          "left_line_pv": 99000,
+          "right_line_pv": 0,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 29527956,
+          "cumulative_pv": 1900280,
+          "left_line_pv": 0,
+          "right_line_pv": 99000,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        }
+      ],
+      "rolled_back_at": "2026-02-25T10:02:58.676Z"
+    },
+    {
+      "batch_id": "1772014032214-rmlqqj",
+      "created_at": "2026-02-25T10:07:12.214Z",
+      "fingerprint": "3ff42481d124630bfa0e9d6431d962d350686444e4fa88b5d1c86599e8b0a5ff",
+      "entries": [
+        {
+          "member_id": 47118351,
+          "pv": 34000
+        }
+      ],
+      "snapshots_before": [
+        {
+          "member_id": 47118351,
+          "cumulative_pv": 475100,
+          "left_line_pv": 0,
+          "right_line_pv": 0,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 45719002,
+          "cumulative_pv": 729500,
+          "left_line_pv": 0,
+          "right_line_pv": 99000,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 45275289,
+          "cumulative_pv": 323400,
+          "left_line_pv": 0,
+          "right_line_pv": 99000,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 44953943,
+          "cumulative_pv": 300500,
+          "left_line_pv": 99000,
+          "right_line_pv": 0,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 43713299,
+          "cumulative_pv": 757800,
+          "left_line_pv": 0,
+          "right_line_pv": 99000,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 38352561,
+          "cumulative_pv": 325100,
+          "left_line_pv": 99000,
+          "right_line_pv": 0,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 31919401,
+          "cumulative_pv": 751690,
+          "left_line_pv": 99000,
+          "right_line_pv": 0,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        },
+        {
+          "member_id": 29527956,
+          "cumulative_pv": 1900280,
+          "left_line_pv": 0,
+          "right_line_pv": 99000,
+          "tier_grade": null,
+          "tier_points": null,
+          "tier_title": null
+        }
+      ],
+      "rolled_back_at": "2026-02-25T10:07:39.947Z"
+    }
+  ]
+}

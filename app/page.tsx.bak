@@ -1,0 +1,115 @@
+function extractMembersToPipeRows(raw: string) {
+  // ✅ 등급 후보 (표준화)
+  const ranks = ["다이아몬드마스터", "세일즈마스터", "특약점", "대리점", "에이전트", "판매원"];
+
+  // ✅ 이름 앞에 붙는 접두어 제거용 (회원/비회원/오타 이전트 포함)
+  const rankPrefixes = [
+    "다이아몬드마스터",
+    "세일즈마스터",
+    "특약점",
+    "대리점",
+    "에이전트",
+    "판매원",
+    "이전트", // PDF에서 종종 오타로 붙음
+    "회원",
+    "비회원",
+  ];
+
+  // 하트 개수 = 후보 인원수에 가장 가까움
+  const heartCount = (raw.match(/🤍/g) || []).length;
+
+  let made = 0;
+  let skippedNoName = 0;
+  let skippedNoId = 0;
+  let skippedNoPv = 0;
+
+  const rows: string[] = [];
+
+  // ✅ 사람 1명 기준을 "🤍 + ID"로 잡는다
+  // - ID는 7~9자리까지 일단 허용 (네가 말한 8자리도 포함, 예외 대비)
+  const re = /🤍\s*([0-9]{7,9})/g;
+
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw)) !== null) {
+    const idStr = m[1];
+    const idNum = Number(idStr);
+    if (!Number.isFinite(idNum)) {
+      skippedNoId++;
+      continue;
+    }
+
+    // ✅ 이 사람의 "뒤쪽" 텍스트에서 (ID 뒤) 이름+등급+명목을 찾는다
+    const tailStart = m.index + m[0].length;
+    const tail = raw.slice(tailStart, tailStart + 200); // 뒤쪽 200자면 충분
+    const nomokIdx = tail.indexOf("명목");
+    const nameZone = (nomokIdx >= 0 ? tail.slice(0, nomokIdx) : tail).replace(/\s+/g, "");
+
+    // nameZone 예: "에이전트임희숙" / "회원하미영" / "비회원이유성" / "이전트김지연" ...
+    let cleanName = nameZone;
+
+    // 접두어(회원/비회원/등급/오타 이전트) 반복 제거
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const p of rankPrefixes) {
+        if (cleanName.startsWith(p)) {
+          cleanName = cleanName.slice(p.length).trim();
+          changed = true;
+          break;
+        }
+      }
+    }
+
+    // 이름이 너무 짧거나 비면 스킵
+    if (!cleanName || cleanName.length < 2) {
+      skippedNoName++;
+      continue;
+    }
+
+    // ✅ 등급 추정: tail 전체에서 ranks 중 먼저 보이는 것을 사용 (없으면 판매원)
+    let rank = "판매원";
+    for (const r of ranks) {
+      if (tail.includes(r)) {
+        rank = r;
+        break;
+      }
+    }
+    // 오타 "이전트" → 에이전트 취급
+    if (tail.includes("이전트")) rank = "에이전트";
+
+    // ✅ 이 사람의 "앞쪽" 텍스트(하트 이전)에서 PV/매출일/센터를 찾는다
+    const head = raw.slice(Math.max(0, m.index - 240), m.index);
+
+    const pvMatch = head.match(/누적\s*PV\s*([0-9,]+)/);
+    const pv = pvMatch ? Number(pvMatch[1].replace(/,/g, "")) : 0;
+    if (!pvMatch) skippedNoPv++;
+
+    const dateMatch = head.match(/매출일\s*(\d{4}-\d{2}-\d{2})/);
+    const lastDate = dateMatch ? dateMatch[1] : "-";
+
+    // 센터: "본사센터경주감포에버섬김인증" 같은 형태를 최대한 잡기
+    const centerMatch = head.match(/본사센터\s*([가-힣0-9\s]{2,40}?)\s*인증/);
+    const center = centerMatch ? centerMatch[1].replace(/\s+/g, "").trim() : "-";
+
+    rows.push(
+      [
+        idNum,
+        0,
+        "ROOT",
+        cleanName,
+        center,
+        rank,
+        lastDate,
+        pv,
+      ].join(" | ")
+    );
+    made++;
+  }
+
+  // ✅ 디버그를 맨 위에 박아주기 (네가 지금처럼 결과 확인 가능)
+  rows.unshift(
+    `// DEBUG heartCount=${heartCount} made=${made} skippedNoName=${skippedNoName} skippedNoId=${skippedNoId} skippedNoPv=${skippedNoPv}`
+  );
+
+  return rows.join("\n");
+}
