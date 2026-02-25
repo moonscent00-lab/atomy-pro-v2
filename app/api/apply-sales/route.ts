@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { promises as fs } from "node:fs";
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 type Edge = { parent_id: number; child_id: number; side: "L" | "R" };
 
@@ -49,7 +49,7 @@ type SalesLedger = {
   batches: SalesBatch[];
 };
 
-const LEDGER_PATH = join(process.cwd(), "data", "sales-ledger.json");
+const LEDGER_PATH = process.env.VERCEL ? "/tmp/sales-ledger.json" : join(process.cwd(), "data", "sales-ledger.json");
 
 async function readLedger(): Promise<SalesLedger> {
   try {
@@ -63,7 +63,7 @@ async function readLedger(): Promise<SalesLedger> {
 }
 
 async function writeLedger(ledger: SalesLedger) {
-  await fs.mkdir(join(process.cwd(), "data"), { recursive: true });
+  await fs.mkdir(dirname(LEDGER_PATH), { recursive: true });
   await fs.writeFile(LEDGER_PATH, JSON.stringify(ledger, null, 2), "utf8");
 }
 
@@ -414,6 +414,10 @@ export async function POST(req: NextRequest) {
       if (ev.error) ledgerWarning = ledgerWarning ? `${ledgerWarning} / allowance_events 기록 실패` : `allowance_events 기록 실패: ${ev.error.message}`;
     }
 
+    const envWarning = process.env.VERCEL
+      ? "배포환경에서는 중복 방지/롤백 이력이 인스턴스별로 일시적으로 달라질 수 있습니다."
+      : null;
+
     return NextResponse.json({
       ok: true,
       duplicated: false,
@@ -425,7 +429,7 @@ export async function POST(req: NextRequest) {
       tierAchieved,
       trace,
       changedPreview,
-      warning: [warning, ledgerWarning].filter(Boolean).join(" / ") || null,
+      warning: [warning, ledgerWarning, envWarning].filter(Boolean).join(" / ") || null,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });

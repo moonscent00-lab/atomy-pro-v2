@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { promises as fs } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 type LedgerSnapshot = {
   member_id: number;
@@ -29,7 +29,7 @@ type SalesLedger = {
   batches: SalesBatch[];
 };
 
-const LEDGER_PATH = join(process.cwd(), "data", "sales-ledger.json");
+const LEDGER_PATH = process.env.VERCEL ? "/tmp/sales-ledger.json" : join(process.cwd(), "data", "sales-ledger.json");
 
 async function readLedger(): Promise<SalesLedger> {
   try {
@@ -43,7 +43,7 @@ async function readLedger(): Promise<SalesLedger> {
 }
 
 async function writeLedger(ledger: SalesLedger) {
-  await fs.mkdir(join(process.cwd(), "data"), { recursive: true });
+  await fs.mkdir(dirname(LEDGER_PATH), { recursive: true });
   await fs.writeFile(LEDGER_PATH, JSON.stringify(ledger, null, 2), "utf8");
 }
 
@@ -112,4 +112,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
   }
 }
-
