@@ -2055,7 +2055,7 @@ export default function Home(
                     {group.items.length === 0 ? (
                       <div style={styles.tiny}>등록된 즐겨찾기가 없습니다.</div>
                     ) : (
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 10 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
                         {group.items.map((f) => {
                           const mobileCard = isMobile;
                           const lRatio = clamp01(f.left_line_pv / Math.max(1, f.target_threshold));

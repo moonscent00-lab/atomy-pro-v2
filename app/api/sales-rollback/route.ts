@@ -2,8 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { promises as fs } from "node:fs";
-import { dirname, join } from "node:path";
+import { authCookieName, verifySessionToken } from "@/lib/auth";
 
 type LedgerSnapshot = {
   member_id: number;
@@ -15,49 +14,20 @@ type LedgerSnapshot = {
   tier_title: string | null;
 };
 
-type SalesBatch = {
-  batch_id: string;
-  created_at: string;
-  fingerprint: string;
-  entries: Array<{ member_id: number; pv: number }>;
-  snapshots_before: LedgerSnapshot[];
-  rolled_back_at?: string | null;
-};
-
-type SalesLedger = {
-  version: 1;
-  batches: SalesBatch[];
-};
-
-const LEDGER_PATH = process.env.VERCEL ? "/tmp/sales-ledger.json" : join(process.cwd(), "data", "sales-ledger.json");
-
-async function readLedger(): Promise<SalesLedger> {
-  try {
-    const raw = await fs.readFile(LEDGER_PATH, "utf8");
-    const json = JSON.parse(raw);
-    if (json && json.version === 1 && Array.isArray(json.batches)) return json as SalesLedger;
-    return { version: 1, batches: [] };
-  } catch {
-    return { version: 1, batches: [] };
-  }
-}
-
-async function writeLedger(ledger: SalesLedger) {
-  await fs.mkdir(dirname(LEDGER_PATH), { recursive: true });
-  await fs.writeFile(LEDGER_PATH, JSON.stringify(ledger, null, 2), "utf8");
-}
-
-async function tryWriteLedger(ledger: SalesLedger): Promise<string | null> {
-  try {
-    await writeLedger(ledger);
-    return null;
-  } catch (e: any) {
-    return `롤백 이력 저장 실패: ${e?.message ?? String(e)}`;
-  }
+function isMissingTableError(error: any, table: string) {
+  const msg = String(error?.message || "");
+  return msg.includes(`relation "${table}" does not exist`) || msg.includes(table);
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const token = req.cookies.get(authCookieName())?.value;
+    const session = verifySessionToken(token);
+    if (!session?.member_id) {
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    }
+    const ownerMemberId = Number(session.member_id);
+
     const body = await req.json().catch(() => ({}));
     const mode = String(body?.mode || "last").toLowerCase(); // last | all
     const confirm = String(body?.confirm || "").toUpperCase();
@@ -65,20 +35,46 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: "confirm=ROLLBACK 가 필요합니다." }, { status: 400 });
     }
 
-    const ledger = await readLedger();
-    const active = ledger.batches.filter((b) => !b.rolled_back_at);
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
+
+    const activeResp = await supabase
+      .from("sales_batches")
+      .select("batch_id, created_at")
+      .eq("owner_member_id", ownerMemberId)
+      .is("rolled_back_at", null)
+      .order("created_at", { ascending: true });
+    if (activeResp.error) {
+      if (isMissingTableError(activeResp.error, "sales_batches")) {
+        return NextResponse.json({ ok: false, error: "sales ledger 테이블이 없습니다. 마이그레이션 SQL을 먼저 적용해 주세요." }, { status: 400 });
+      }
+      return NextResponse.json({ ok: false, error: activeResp.error.message }, { status: 500 });
+    }
+
+    const active = (activeResp.data || []) as Array<{ batch_id: string; created_at: string }>;
     if (active.length === 0) {
       return NextResponse.json({ ok: true, rolledBackBatches: 0, rolledBackMembers: 0, message: "롤백할 매출 반영 이력이 없습니다." });
     }
 
     const target = mode === "all" ? active : [active[active.length - 1]];
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
+    const targetIds = target.map((b) => b.batch_id);
 
     let rolledBackMembers = 0;
-    for (const batch of [...target].reverse()) {
-      for (const s of batch.snapshots_before) {
+    for (const batchId of [...targetIds].reverse()) {
+      const snapResp = await supabase
+        .from("sales_batch_snapshots")
+        .select("member_id, cumulative_pv, left_line_pv, right_line_pv, tier_grade, tier_points, tier_title")
+        .eq("batch_id", batchId);
+      if (snapResp.error) {
+        if (isMissingTableError(snapResp.error, "sales_batch_snapshots")) {
+          return NextResponse.json({ ok: false, error: "sales_batch_snapshots 테이블이 없습니다. 마이그레이션 SQL을 먼저 적용해 주세요." }, { status: 400 });
+        }
+        return NextResponse.json({ ok: false, error: snapResp.error.message }, { status: 500 });
+      }
+
+      const snapshots = (snapResp.data || []) as LedgerSnapshot[];
+      for (const s of snapshots) {
         const basePayload: Record<string, string | number | null> = {
           cumulative_pv: Math.max(0, Math.trunc(Number(s.cumulative_pv || 0))),
           left_line_pv: Math.max(0, Math.trunc(Number(s.left_line_pv || 0))),
@@ -105,18 +101,23 @@ export async function POST(req: NextRequest) {
         }
         if (ok) rolledBackMembers += 1;
       }
-      batch.rolled_back_at = new Date().toISOString();
     }
 
-    const ledgerWriteWarning = await tryWriteLedger(ledger);
+    const rolledAt = new Date().toISOString();
+    const upd = await supabase
+      .from("sales_batches")
+      .update({ rolled_back_at: rolledAt })
+      .eq("owner_member_id", ownerMemberId)
+      .in("batch_id", targetIds);
+    if (upd.error) return NextResponse.json({ ok: false, error: upd.error.message }, { status: 500 });
 
     return NextResponse.json({
       ok: true,
       mode,
       rolledBackBatches: target.length,
       rolledBackMembers,
-      batchIds: target.map((b) => b.batch_id),
-      warning: ledgerWriteWarning,
+      batchIds: targetIds,
+      warning: null,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });

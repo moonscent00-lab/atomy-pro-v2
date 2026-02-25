@@ -2,9 +2,8 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { promises as fs } from "node:fs";
 import { createHash } from "node:crypto";
-import { dirname, join } from "node:path";
+import { authCookieName, verifySessionToken } from "@/lib/auth";
 
 type Edge = { parent_id: number; child_id: number; side: "L" | "R" };
 
@@ -37,6 +36,7 @@ type LedgerSnapshot = {
 
 type SalesBatch = {
   batch_id: string;
+  owner_member_id: number;
   created_at: string;
   fingerprint: string;
   entries: Array<{ member_id: number; pv: number }>;
@@ -44,36 +44,9 @@ type SalesBatch = {
   rolled_back_at?: string | null;
 };
 
-type SalesLedger = {
-  version: 1;
-  batches: SalesBatch[];
-};
-
-const LEDGER_PATH = process.env.VERCEL ? "/tmp/sales-ledger.json" : join(process.cwd(), "data", "sales-ledger.json");
-
-async function readLedger(): Promise<SalesLedger> {
-  try {
-    const raw = await fs.readFile(LEDGER_PATH, "utf8");
-    const json = JSON.parse(raw);
-    if (json && json.version === 1 && Array.isArray(json.batches)) return json as SalesLedger;
-    return { version: 1, batches: [] };
-  } catch {
-    return { version: 1, batches: [] };
-  }
-}
-
-async function writeLedger(ledger: SalesLedger) {
-  await fs.mkdir(dirname(LEDGER_PATH), { recursive: true });
-  await fs.writeFile(LEDGER_PATH, JSON.stringify(ledger, null, 2), "utf8");
-}
-
-async function tryWriteLedger(ledger: SalesLedger): Promise<string | null> {
-  try {
-    await writeLedger(ledger);
-    return null;
-  } catch (e: any) {
-    return `매출 이력 저장 실패(중복방지/롤백 이력): ${e?.message ?? String(e)}`;
-  }
+function isMissingTableError(error: any, table: string) {
+  const msg = String(error?.message || "");
+  return msg.includes(`relation "${table}" does not exist`) || msg.includes(`${table}`);
 }
 
 function salesFingerprint(salesMap: Map<number, number>) {
@@ -151,6 +124,13 @@ function parseSalesText(text: string) {
 
 export async function POST(req: NextRequest) {
   try {
+    const token = req.cookies.get(authCookieName())?.value;
+    const session = verifySessionToken(token);
+    if (!session?.member_id) {
+      return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    }
+    const ownerMemberId = Number(session.member_id);
+
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     const supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
@@ -163,16 +143,30 @@ export async function POST(req: NextRequest) {
     }
 
     const fingerprint = salesFingerprint(salesMap);
-    const ledger = await readLedger();
-    const duplicated = ledger.batches.find((b) => b.fingerprint === fingerprint && !b.rolled_back_at);
-    if (duplicated) {
-      return NextResponse.json({
-        ok: true,
-        duplicated: true,
-        skipped: true,
-        reason: "같은 매출 묶음이 이미 반영되어 중복 적용을 건너뛰었습니다.",
-        batch_id: duplicated.batch_id,
-      });
+    const warnings: string[] = [];
+    {
+      const dup = await supabase
+        .from("sales_batches")
+        .select("batch_id")
+        .eq("owner_member_id", ownerMemberId)
+        .eq("fingerprint", fingerprint)
+        .is("rolled_back_at", null)
+        .maybeSingle();
+      if (dup.error) {
+        if (isMissingTableError(dup.error, "sales_batches")) {
+          warnings.push("sales ledger 테이블이 없어 중복 방지/롤백 이력 저장이 비활성화됩니다.");
+        } else {
+          return NextResponse.json({ ok: false, error: dup.error.message }, { status: 500 });
+        }
+      } else if (dup.data?.batch_id) {
+        return NextResponse.json({
+          ok: true,
+          duplicated: true,
+          skipped: true,
+          reason: "같은 매출 묶음이 이미 반영되어 중복 적용을 건너뛰었습니다.",
+          batch_id: dup.data.batch_id,
+        });
+      }
     }
 
     const { data: edges, error: edgeErr } = await supabase.from("edges").select("parent_id, child_id, side");
@@ -381,14 +375,53 @@ export async function POST(req: NextRequest) {
 
     const batch: SalesBatch = {
       batch_id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      owner_member_id: ownerMemberId,
       created_at: new Date().toISOString(),
       fingerprint,
       entries: Array.from(salesMap.entries()).map(([member_id, pv]) => ({ member_id, pv })),
       snapshots_before: Array.from(beforeMap.values()),
       rolled_back_at: null,
     };
-    ledger.batches.push(batch);
-    const ledgerWriteWarning = await tryWriteLedger(ledger);
+    {
+      const b = await supabase.from("sales_batches").insert({
+        batch_id: batch.batch_id,
+        owner_member_id: batch.owner_member_id,
+        created_at: batch.created_at,
+        fingerprint: batch.fingerprint,
+        rolled_back_at: null,
+      });
+      if (b.error) {
+        if (isMissingTableError(b.error, "sales_batches")) {
+          warnings.push("sales ledger 테이블이 없어 중복 방지/롤백 이력 저장이 비활성화됩니다.");
+        } else {
+          warnings.push(`sales_batches 저장 실패: ${b.error.message}`);
+        }
+      } else {
+        const entryRows = batch.entries.map((e) => ({
+          batch_id: batch.batch_id,
+          member_id: e.member_id,
+          pv: e.pv,
+        }));
+        if (entryRows.length > 0) {
+          const eIns = await supabase.from("sales_batch_entries").insert(entryRows);
+          if (eIns.error) warnings.push(`sales_batch_entries 저장 실패: ${eIns.error.message}`);
+        }
+        const snapRows = batch.snapshots_before.map((s) => ({
+          batch_id: batch.batch_id,
+          member_id: s.member_id,
+          cumulative_pv: s.cumulative_pv,
+          left_line_pv: s.left_line_pv,
+          right_line_pv: s.right_line_pv,
+          tier_grade: s.tier_grade,
+          tier_points: s.tier_points,
+          tier_title: s.tier_title,
+        }));
+        if (snapRows.length > 0) {
+          const sIns = await supabase.from("sales_batch_snapshots").upsert(snapRows, { onConflict: "batch_id,member_id" });
+          if (sIns.error) warnings.push(`sales_batch_snapshots 저장 실패: ${sIns.error.message}`);
+        }
+      }
+    }
 
     // pv_ledger 기록 (테이블/컬럼이 없으면 경고만 남기고 진행)
     let ledgerWarning: string | null = null;
@@ -423,10 +456,6 @@ export async function POST(req: NextRequest) {
       if (ev.error) ledgerWarning = ledgerWarning ? `${ledgerWarning} / allowance_events 기록 실패` : `allowance_events 기록 실패: ${ev.error.message}`;
     }
 
-    const envWarning = process.env.VERCEL
-      ? "배포환경에서는 중복 방지/롤백 이력이 인스턴스별로 일시적으로 달라질 수 있습니다."
-      : null;
-
     return NextResponse.json({
       ok: true,
       duplicated: false,
@@ -438,7 +467,7 @@ export async function POST(req: NextRequest) {
       tierAchieved,
       trace,
       changedPreview,
-      warning: [warning, ledgerWarning, envWarning, ledgerWriteWarning].filter(Boolean).join(" / ") || null,
+      warning: [warning, ledgerWarning, ...warnings].filter(Boolean).join(" / ") || null,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
