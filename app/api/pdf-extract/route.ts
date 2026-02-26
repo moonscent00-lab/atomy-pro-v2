@@ -4,6 +4,16 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+async function ensurePdfPolyfills() {
+  const g = globalThis as any;
+  if (!g.DOMMatrix) {
+    const dm: any = await import("dommatrix");
+    const DOMMatrixCtor = dm?.default ?? dm;
+    g.DOMMatrix = DOMMatrixCtor;
+    if (!g.DOMMatrixReadOnly) g.DOMMatrixReadOnly = DOMMatrixCtor;
+  }
+}
+
 export async function POST(req: Request) {
   let workDir = "";
   try {
@@ -26,6 +36,7 @@ export async function POST(req: Request) {
       paths.push(p);
     }
 
+    await ensurePdfPolyfills();
     const pdfMod: any = await import("pdf-parse");
     const PDFParse = pdfMod?.PDFParse ?? pdfMod?.default?.PDFParse ?? pdfMod?.default;
     if (!PDFParse) {
