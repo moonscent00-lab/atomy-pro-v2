@@ -42,6 +42,12 @@ export async function POST(req: Request) {
     if (!PDFParse) {
       return Response.json({ ok: false, error: "pdf-parse 로딩 실패" }, { status: 500 });
     }
+    // Vercel/serverless에서 worker 파일 경로 해석 실패를 막기 위해 worker를 명시 설정
+    const workerMod: any = await import("pdf-parse/worker");
+    const workerSrc = workerMod?.getData?.() || workerMod?.getPath?.();
+    if (workerSrc && typeof PDFParse?.setWorker === "function") {
+      PDFParse.setWorker(workerSrc);
+    }
 
     let mergedText = "";
     for (const p of paths) {

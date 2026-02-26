@@ -2633,6 +2633,9 @@ export default function Home(
                   if (selectedNode?.id) {
                     setDriveAnchorId(selectedNode.id);
                     setShowDrivingPanel(true);
+                    const nextRoot = String(selectedNode.id);
+                    setTreeRoot(nextRoot);
+                    loadTree(selectedNode.id);
                   }
                 }}
                 disabled={!selectedNode?.id}
