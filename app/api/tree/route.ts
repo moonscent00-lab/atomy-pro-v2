@@ -154,13 +154,13 @@ export async function GET(req: NextRequest) {
     if (e2) {
       const fallbackA = await supabase
         .from("members")
-        .select("member_id, name, nominal_rank, current_rank, rank, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv")
+        .select("member_id, name, rank, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv")
         .in("member_id", allIds);
       if (!fallbackA.error) {
-        members = ((fallbackA.data ?? []) as Array<{ member_id: number; name: string | null; nominal_rank?: string | null; current_rank?: string | null; rank?: string | null; cumulative_pv?: number | null; last_purchase_date?: string | null; left_line_pv?: number | null; right_line_pv?: number | null }>).map((m) => ({
+        members = ((fallbackA.data ?? []) as Array<{ member_id: number; name: string | null; rank?: string | null; cumulative_pv?: number | null; last_purchase_date?: string | null; left_line_pv?: number | null; right_line_pv?: number | null }>).map((m) => ({
           ...m,
-          nominal_rank: m.nominal_rank ?? null,
-          current_rank: m.current_rank ?? null,
+          nominal_rank: null,
+          current_rank: null,
           rank: m.rank ?? null,
           driving_side: "L",
           cumulative_pv: m.cumulative_pv ?? null,
@@ -174,13 +174,13 @@ export async function GET(req: NextRequest) {
       } else {
         const fallbackB = await supabase
           .from("members")
-          .select("member_id, name, nominal_rank, current_rank, rank, cumulative_pv, last_purchase_date")
+          .select("member_id, name, rank, cumulative_pv, last_purchase_date")
           .in("member_id", allIds);
         if (!fallbackB.error) {
-          members = ((fallbackB.data ?? []) as Array<{ member_id: number; name: string | null; nominal_rank?: string | null; current_rank?: string | null; rank?: string | null; cumulative_pv?: number | null; last_purchase_date?: string | null }>).map((m) => ({
+          members = ((fallbackB.data ?? []) as Array<{ member_id: number; name: string | null; rank?: string | null; cumulative_pv?: number | null; last_purchase_date?: string | null }>).map((m) => ({
             ...m,
-            nominal_rank: m.nominal_rank ?? null,
-            current_rank: m.current_rank ?? null,
+            nominal_rank: null,
+            current_rank: null,
             rank: m.rank ?? null,
             driving_side: "L",
             cumulative_pv: m.cumulative_pv ?? null,
