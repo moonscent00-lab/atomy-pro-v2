@@ -1124,7 +1124,7 @@ export default function Home(
         "ROOT",
         (m.name || "").trim(),
         (m.center || "-").trim(),
-        (m.nominal_rank || m.rank || m.current_rank || "판매원").trim(),
+        (m.current_rank || m.rank || m.nominal_rank || "판매원").trim(),
         (m.last_purchase_date || "-").trim(),
         Number(m.cumulative_pv || 0),
         (m.corporation || "-").trim(),
