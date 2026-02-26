@@ -30,11 +30,19 @@ function pvNum(v: unknown) {
   return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
 }
 
-function ymd(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+function pvSigned(v: unknown) {
+  const n = Number(v ?? 0);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
+function ymdInSeoul(d: Date) {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return fmt.format(d);
 }
 
 export async function GET(req: NextRequest) {
@@ -57,32 +65,34 @@ export async function GET(req: NextRequest) {
     const owner = (ownerResp.data || null) as MemberRow | null;
     if (!owner) return NextResponse.json({ ok: false, error: "members에 본인 정보가 없습니다." }, { status: 400 });
 
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const firstHalfStart = ymd(monthStart);
-    const firstHalfEnd = ymd(new Date(now.getFullYear(), now.getMonth(), 15));
-    const secondHalfStart = ymd(new Date(now.getFullYear(), now.getMonth(), 16));
-    const today = ymd(now);
+    const today = ymdInSeoul(new Date());
+    const [yearStr, monthStr, dayStr] = today.split("-");
+    const day = Number(dayStr);
+    const firstHalfStart = `${yearStr}-${monthStr}-01`;
+    const firstHalfEnd = `${yearStr}-${monthStr}-15`;
+    const secondHalfStart = `${yearStr}-${monthStr}-16`;
 
     const firstHalf = await supabase
       .from("pv_ledger")
       .select("delta_pv")
       .eq("member_id", ownerId)
-      .eq("side", "SELF")
-      .gte("occurred_at", `${firstHalfStart}T00:00:00`)
-      .lte("occurred_at", `${firstHalfEnd}T23:59:59`);
+      .in("side", ["SELF", "L", "R"])
+      .gte("occurred_at", `${firstHalfStart}T00:00:00+09:00`)
+      .lte("occurred_at", `${firstHalfEnd}T23:59:59+09:00`);
     const secondHalf = await supabase
       .from("pv_ledger")
       .select("delta_pv")
       .eq("member_id", ownerId)
-      .eq("side", "SELF")
-      .gte("occurred_at", `${secondHalfStart}T00:00:00`)
-      .lte("occurred_at", `${today}T23:59:59`);
+      .in("side", ["SELF", "L", "R"])
+      .gte("occurred_at", `${secondHalfStart}T00:00:00+09:00`)
+      .lte("occurred_at", `${today}T23:59:59+09:00`);
     if (firstHalf.error) return NextResponse.json({ ok: false, error: firstHalf.error.message }, { status: 500 });
     if (secondHalf.error) return NextResponse.json({ ok: false, error: secondHalf.error.message }, { status: 500 });
 
-    const firstHalfPv = (firstHalf.data || []).reduce((s: number, r: any) => s + pvNum(r.delta_pv), 0);
-    const secondHalfPv = (secondHalf.data || []).reduce((s: number, r: any) => s + pvNum(r.delta_pv), 0);
+    const firstHalfPvRaw = (firstHalf.data || []).reduce((s: number, r: any) => s + pvSigned(r.delta_pv), 0);
+    const secondHalfPvRaw = (secondHalf.data || []).reduce((s: number, r: any) => s + pvSigned(r.delta_pv), 0);
+    const firstHalfPv = firstHalfPvRaw;
+    const secondHalfPv = day >= 16 ? secondHalfPvRaw : 0;
 
     const lastAllowanceResp = await supabase
       .from("allowance_events")
@@ -189,4 +199,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
   }
 }
-
