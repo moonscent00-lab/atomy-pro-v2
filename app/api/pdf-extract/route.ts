@@ -1,5 +1,7 @@
 export const runtime = "nodejs";
 
+import { createRequire } from "node:module";
+
 async function ensurePdfJsPolyfills() {
   const g = globalThis as any;
   if (!g.DOMMatrix) {
@@ -21,9 +23,10 @@ export async function POST(req: Request) {
 
     await ensurePdfJsPolyfills();
     const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    // Serverless에서 fake worker 경로 오류 방지: workerSrc를 data-url로 명시.
+    // Serverless에서 fake worker 오류 방지: workerSrc를 data-url로 명시.
     if (pdfjs?.GlobalWorkerOptions) {
-      const workerMod: any = await import("pdf-parse/worker");
+      const require = createRequire(import.meta.url);
+      const workerMod: any = require("pdf-parse/worker");
       const workerSrc = workerMod?.getData?.() || workerMod?.getPath?.() || "";
       pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
     }
@@ -33,7 +36,7 @@ export async function POST(req: Request) {
       const f = files[i] as File;
       const safeName = (f.name || `file-${i + 1}.pdf`).replace(/[^\w.\-가-힣]/g, "_");
       const bytes = new Uint8Array(await f.arrayBuffer());
-      const loadingTask = pdfjs.getDocument({ data: bytes, disableWorker: true, useWorkerFetch: false });
+      const loadingTask = pdfjs.getDocument({ data: bytes, useWorkerFetch: false });
       const doc = await loadingTask.promise;
       let text = "";
       for (let p = 1; p <= doc.numPages; p += 1) {
