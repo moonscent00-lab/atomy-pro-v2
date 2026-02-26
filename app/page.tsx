@@ -2614,10 +2614,13 @@ export default function Home(
             <div style={{ marginTop: 10, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <button
                 type="button"
-                style={styles.btn("ghost")}
+                style={styles.btn(driveAnchorId === Number(treeData?.tree?.id ?? 0) ? "primary" : "ghost")}
                 onClick={() => {
                   const rootId = Number(treeData?.tree?.id ?? 0);
-                  if (rootId) setDriveAnchorId(rootId);
+                  if (rootId) {
+                    setDriveAnchorId(rootId);
+                    setShowDrivingPanel(true);
+                  }
                 }}
                 disabled={!treeData?.ok}
               >
@@ -2625,9 +2628,12 @@ export default function Home(
               </button>
               <button
                 type="button"
-                style={styles.btn("ghost")}
+                style={styles.btn(selectedNode?.id && driveAnchorId === selectedNode.id ? "primary" : "ghost")}
                 onClick={() => {
-                  if (selectedNode?.id) setDriveAnchorId(selectedNode.id);
+                  if (selectedNode?.id) {
+                    setDriveAnchorId(selectedNode.id);
+                    setShowDrivingPanel(true);
+                  }
                 }}
                 disabled={!selectedNode?.id}
               >
