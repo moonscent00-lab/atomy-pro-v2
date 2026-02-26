@@ -1,5 +1,7 @@
 export const runtime = "nodejs";
 
+import { createRequire } from "node:module";
+
 async function ensurePdfJsPolyfills() {
   const g = globalThis as any;
   if (!g.DOMMatrix) {
@@ -26,7 +28,10 @@ export async function POST(req: Request) {
       return Response.json({ ok: false, error: "pdf-parse 로딩 실패" }, { status: 500 });
     }
     if (typeof PDFParse?.setWorker === "function") {
-      PDFParse.setWorker("https://cdn.jsdelivr.net/npm/pdf-parse@2.4.5/dist/pdf-parse/web/pdf.worker.min.mjs");
+      const require = createRequire(import.meta.url);
+      const workerMod: any = require("pdf-parse/worker");
+      const workerSrc = workerMod?.getData?.() || workerMod?.getPath?.() || "";
+      PDFParse.setWorker(workerSrc);
     }
 
     let mergedText = "";
