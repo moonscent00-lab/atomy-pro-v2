@@ -11,6 +11,8 @@ type Edge = { parent_id: number; child_id: number; side: "L" | "R" };
 type Member = {
   member_id: number;
   name: string | null;
+  nominal_rank?: string | null;
+  current_rank?: string | null;
   rank?: string | null;
   driving_side?: "L" | "R" | null;
   cumulative_pv?: number | null;
@@ -143,7 +145,7 @@ export async function GET(req: NextRequest) {
       const resp = await supabase
         .from("members")
         .select(
-          "member_id, name, rank, driving_side, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv, tier_grade, tier_points, tier_title"
+          "member_id, name, nominal_rank, current_rank, rank, driving_side, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv, tier_grade, tier_points, tier_title"
         )
         .in("member_id", allIds);
       members = (resp.data as Member[] | null) ?? null;
@@ -152,11 +154,13 @@ export async function GET(req: NextRequest) {
     if (e2) {
       const fallbackA = await supabase
         .from("members")
-        .select("member_id, name, rank, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv")
+        .select("member_id, name, nominal_rank, current_rank, rank, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv")
         .in("member_id", allIds);
       if (!fallbackA.error) {
-        members = ((fallbackA.data ?? []) as Array<{ member_id: number; name: string | null; rank?: string | null; cumulative_pv?: number | null; last_purchase_date?: string | null; left_line_pv?: number | null; right_line_pv?: number | null }>).map((m) => ({
+        members = ((fallbackA.data ?? []) as Array<{ member_id: number; name: string | null; nominal_rank?: string | null; current_rank?: string | null; rank?: string | null; cumulative_pv?: number | null; last_purchase_date?: string | null; left_line_pv?: number | null; right_line_pv?: number | null }>).map((m) => ({
           ...m,
+          nominal_rank: m.nominal_rank ?? null,
+          current_rank: m.current_rank ?? null,
           rank: m.rank ?? null,
           driving_side: "L",
           cumulative_pv: m.cumulative_pv ?? null,
@@ -170,11 +174,13 @@ export async function GET(req: NextRequest) {
       } else {
         const fallbackB = await supabase
           .from("members")
-          .select("member_id, name, rank, cumulative_pv, last_purchase_date")
+          .select("member_id, name, nominal_rank, current_rank, rank, cumulative_pv, last_purchase_date")
           .in("member_id", allIds);
         if (!fallbackB.error) {
-          members = ((fallbackB.data ?? []) as Array<{ member_id: number; name: string | null; rank?: string | null; cumulative_pv?: number | null; last_purchase_date?: string | null }>).map((m) => ({
+          members = ((fallbackB.data ?? []) as Array<{ member_id: number; name: string | null; nominal_rank?: string | null; current_rank?: string | null; rank?: string | null; cumulative_pv?: number | null; last_purchase_date?: string | null }>).map((m) => ({
             ...m,
+            nominal_rank: m.nominal_rank ?? null,
+            current_rank: m.current_rank ?? null,
             rank: m.rank ?? null,
             driving_side: "L",
             cumulative_pv: m.cumulative_pv ?? null,
@@ -221,7 +227,10 @@ export async function GET(req: NextRequest) {
     const leavingMap = new Map<number, boolean>();
     for (const m of (members || []) as Member[]) {
       nameMap.set(m.member_id, (m.name || "").trim() || "(이름없음)");
-      rankMap.set(m.member_id, (m.rank || "").trim() || null);
+      const nominal = (m.nominal_rank || "").trim();
+      const legacy = (m.rank || "").trim();
+      const current = (m.current_rank || "").trim();
+      rankMap.set(m.member_id, nominal || legacy || current || null);
       drivingSideMap.set(m.member_id, m.driving_side === "R" ? "R" : "L");
       const pv = m.cumulative_pv == null ? null : Number(m.cumulative_pv);
       pvMap.set(m.member_id, pv != null && Number.isFinite(pv) ? pv : null);

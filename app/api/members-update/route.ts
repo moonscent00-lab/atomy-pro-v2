@@ -97,7 +97,6 @@ export async function POST(req: NextRequest) {
 
     const payload: Record<string, string | number | null> = {
       name,
-      rank: rank || null,
       driving_side,
       cumulative_pv,
       left_line_pv: shouldResetByTier ? 0 : left_line_pv,
@@ -125,6 +124,16 @@ export async function POST(req: NextRequest) {
       const tryPayload = { ...payload } as Record<string, string | number | null>;
       for (const key of removed) delete tryPayload[key];
 
+      // 명목등급 우선 저장: nominal_rank 컬럼이 있으면 nominal_rank로 저장,
+      // nominal_rank가 없는 구 스키마에서는 rank 컬럼으로 저장.
+      if (rank || rank === "") {
+        if (!removed.has("nominal_rank")) {
+          tryPayload.nominal_rank = rank || null;
+        } else {
+          tryPayload.rank = rank || null;
+        }
+      }
+
       const { error } = await supabase.from("members").update(tryPayload).eq("member_id", member_id);
       if (!error) {
         saveError = null;
@@ -140,6 +149,10 @@ export async function POST(req: NextRequest) {
       const missingCol = m?.[1];
       if (missingCol && Object.prototype.hasOwnProperty.call(payload, missingCol)) {
         removed.add(missingCol);
+        continue;
+      }
+      if (missingCol === "nominal_rank") {
+        removed.add("nominal_rank");
         continue;
       }
       // 컬럼 식별 못하면 기존 호환 처리
