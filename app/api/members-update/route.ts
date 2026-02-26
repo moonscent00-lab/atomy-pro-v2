@@ -124,11 +124,11 @@ export async function POST(req: NextRequest) {
       const tryPayload = { ...payload } as Record<string, string | number | null>;
       for (const key of removed) delete tryPayload[key];
 
-      // 명목등급 우선 저장: nominal_rank 컬럼이 있으면 nominal_rank로 저장,
-      // nominal_rank가 없는 구 스키마에서는 rank 컬럼으로 저장.
+      // 현재등급 우선 저장: current_rank 컬럼이 있으면 current_rank로 저장,
+      // current_rank가 없는 구 스키마에서는 rank 컬럼으로 저장.
       if (rank || rank === "") {
-        if (!removed.has("nominal_rank")) {
-          tryPayload.nominal_rank = rank || null;
+        if (!removed.has("current_rank")) {
+          tryPayload.current_rank = rank || null;
         } else {
           tryPayload.rank = rank || null;
         }
@@ -151,8 +151,8 @@ export async function POST(req: NextRequest) {
         removed.add(missingCol);
         continue;
       }
-      if (missingCol === "nominal_rank") {
-        removed.add("nominal_rank");
+      if (missingCol === "current_rank") {
+        removed.add("current_rank");
         continue;
       }
       // 컬럼 식별 못하면 기존 호환 처리

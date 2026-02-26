@@ -227,10 +227,11 @@ export async function GET(req: NextRequest) {
     const leavingMap = new Map<number, boolean>();
     for (const m of (members || []) as Member[]) {
       nameMap.set(m.member_id, (m.name || "").trim() || "(이름없음)");
-      const nominal = (m.nominal_rank || "").trim();
-      const legacy = (m.rank || "").trim();
       const current = (m.current_rank || "").trim();
-      rankMap.set(m.member_id, nominal || legacy || current || null);
+      const legacy = (m.rank || "").trim();
+      const nominal = (m.nominal_rank || "").trim();
+      // 트리 노드 표시/색상은 현재등급 우선
+      rankMap.set(m.member_id, current || legacy || nominal || null);
       drivingSideMap.set(m.member_id, m.driving_side === "R" ? "R" : "L");
       const pv = m.cumulative_pv == null ? null : Number(m.cumulative_pv);
       pvMap.set(m.member_id, pv != null && Number.isFinite(pv) ? pv : null);
