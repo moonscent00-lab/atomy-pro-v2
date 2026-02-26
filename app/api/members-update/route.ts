@@ -114,6 +114,7 @@ export async function POST(req: NextRequest) {
       driving_side: "driving_side 컬럼이 없어 방향 저장은 제외되었습니다.",
       left_line_pv: "left_line_pv 컬럼이 없어 좌 라인PV 저장은 제외되었습니다.",
       right_line_pv: "right_line_pv 컬럼이 없어 우 라인PV 저장은 제외되었습니다.",
+      current_rank: "current_rank 컬럼이 없어 등급 저장은 rank 컬럼으로 대체되었습니다.",
       tier_grade: "티어 컬럼이 없어 티어 저장은 제외되었습니다.",
       tier_points: "티어 컬럼이 없어 티어 저장은 제외되었습니다.",
       tier_title: "티어 컬럼이 없어 티어 저장은 제외되었습니다.",
@@ -152,6 +153,10 @@ export async function POST(req: NextRequest) {
         continue;
       }
       if (missingCol === "current_rank") {
+        removed.add("current_rank");
+        continue;
+      }
+      if (error.message.includes("current_rank")) {
         removed.add("current_rank");
         continue;
       }
