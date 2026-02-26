@@ -1,10 +1,6 @@
 export const runtime = "nodejs";
 
-import { promises as fs } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-async function ensurePdfPolyfills() {
+async function ensurePdfJsPolyfills() {
   const g = globalThis as any;
   if (!g.DOMMatrix) {
     const dm: any = await import("dommatrix");
@@ -15,7 +11,6 @@ async function ensurePdfPolyfills() {
 }
 
 export async function POST(req: Request) {
-  let workDir = "";
   try {
     const form = await req.formData();
     const files = form.getAll("files");
@@ -24,57 +19,42 @@ export async function POST(req: Request) {
       return Response.json({ ok: false, error: "PDF 파일이 없습니다." }, { status: 400 });
     }
 
-    workDir = await fs.mkdtemp(join(tmpdir(), "atomy-pdf-"));
-    const paths: string[] = [];
-
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i] as File;
-      const name = (f.name || `file-${i + 1}.pdf`).replace(/[^\w.\-가-힣]/g, "_");
-      const p = join(workDir, `${i + 1}-${name}`);
-      const ab = await f.arrayBuffer();
-      await fs.writeFile(p, Buffer.from(ab));
-      paths.push(p);
-    }
-
-    await ensurePdfPolyfills();
-    const pdfMod: any = await import("pdf-parse");
-    const PDFParse = pdfMod?.PDFParse ?? pdfMod?.default?.PDFParse ?? pdfMod?.default;
-    if (!PDFParse) {
-      return Response.json({ ok: false, error: "pdf-parse 로딩 실패" }, { status: 500 });
-    }
-    // Vercel/serverless에서 worker 파일 경로 해석 실패를 막기 위해 worker를 명시 설정
-    const workerMod: any = await import("pdf-parse/worker");
-    const workerSrc = workerMod?.getData?.() || workerMod?.getPath?.();
-    if (workerSrc && typeof PDFParse?.setWorker === "function") {
-      PDFParse.setWorker(workerSrc);
-    }
+    await ensurePdfJsPolyfills();
+    const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    // Serverless에서 worker 파일 경로 탐색을 아예 막는다.
+    if (pdfjs?.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = "";
 
     let mergedText = "";
-    for (const p of paths) {
-      const data = await fs.readFile(p);
-      const parser = new PDFParse({ data });
-      const result = await parser.getText();
-      await parser.destroy();
+    for (let i = 0; i < files.length; i += 1) {
+      const f = files[i] as File;
+      const safeName = (f.name || `file-${i + 1}.pdf`).replace(/[^\w.\-가-힣]/g, "_");
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      const loadingTask = pdfjs.getDocument({ data: bytes, disableWorker: true, useWorkerFetch: false });
+      const doc = await loadingTask.promise;
+      let text = "";
+      for (let p = 1; p <= doc.numPages; p += 1) {
+        const page = await doc.getPage(p);
+        const content = await page.getTextContent();
+        const line = (content.items || [])
+          .map((it: any) => String(it?.str || ""))
+          .join(" ")
+          .trim();
+        if (line) text += `${line}\n`;
+        page.cleanup();
+      }
+      await doc.destroy();
 
-      const text = String(result?.text || "")
+      text = String(text || "")
         .replace(/\r/g, "")
         .replace(/[ \t]+\n/g, "\n")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
-      mergedText += `\n\n// --- ${p.split("/").pop()} ---\n`;
+      mergedText += `\n\n// --- ${safeName} ---\n`;
       if (text) mergedText += `${text}\n`;
     }
 
     return Response.json({ ok: true, text: mergedText.trim() });
   } catch (e: any) {
     return Response.json({ ok: false, error: e?.message || "PDF 추출 중 오류가 발생했습니다." }, { status: 500 });
-  } finally {
-    if (workDir) {
-      try {
-        await fs.rm(workDir, { recursive: true, force: true });
-      } catch {
-        // noop
-      }
-    }
   }
 }

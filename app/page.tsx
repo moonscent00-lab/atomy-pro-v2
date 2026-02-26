@@ -2628,17 +2628,18 @@ export default function Home(
               </button>
               <button
                 type="button"
-                style={styles.btn(selectedNode?.id && driveAnchorId === selectedNode.id ? "primary" : "ghost")}
+                style={styles.btn((selectedNode?.id || driveAnchorId) ? "primary" : "ghost")}
                 onClick={() => {
-                  if (selectedNode?.id) {
-                    setDriveAnchorId(selectedNode.id);
+                  const targetId = Number(selectedNode?.id || driveAnchorId || 0);
+                  if (targetId > 0) {
+                    setDriveAnchorId(targetId);
                     setShowDrivingPanel(true);
-                    const nextRoot = String(selectedNode.id);
+                    const nextRoot = String(targetId);
                     setTreeRoot(nextRoot);
-                    loadTree(selectedNode.id);
+                    loadTree(targetId);
                   }
                 }}
-                disabled={!selectedNode?.id}
+                disabled={!selectedNode?.id && !driveAnchorId}
               >
                 선택 멤버 기준
               </button>
