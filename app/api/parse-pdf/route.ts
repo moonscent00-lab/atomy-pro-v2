@@ -54,16 +54,29 @@ function cleanLines(raw: string) {
   return out;
 }
 
+function isRankLine(line?: string) {
+  const txt = String(line || "").trim();
+  if (!txt) return false;
+  return RANKS.includes(txt);
+}
+
 function splitBlocks(lines: string[]) {
   const blocks: string[][] = [];
   let cur: string[] = [];
-
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
     cur.push(line);
 
     if (DEPTH_AND_ID.test(line)) {
       const hasFields = cur.some((x) => x.startsWith("누적PV") || x.startsWith("매출일") || x.startsWith("가입일"));
       if (hasFields) {
+        // ID 라인 바로 다음의 단독 등급(예: 대리점/특약점/에이전트)은
+        // 현재 멤버의 표시 등급으로 붙여준다.
+        const next = lines[i + 1];
+        if (isRankLine(next)) {
+          cur.push(next.trim());
+          i += 1;
+        }
         blocks.push(cur);
         cur = [];
       }
@@ -111,6 +124,13 @@ function pickName(lines: string[]) {
 }
 
 function pickRank(lines: string[]) {
+  // ID 라인 아래에 붙어있는 표시등급을 우선 사용
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!DEPTH_AND_ID.test(lines[i])) continue;
+    const next = (lines[i + 1] || "").trim();
+    if (isRankLine(next)) return next;
+  }
+
   for (const line of lines) {
     const m1 = line.match(/현재(?:등급)?\s*[:：]?\s*(.+)$/);
     if (m1?.[1]) {
