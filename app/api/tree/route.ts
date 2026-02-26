@@ -138,80 +138,52 @@ export async function GET(req: NextRequest) {
 
     const allIds = Array.from(visited);
 
-    // 3) members에서 이름/등급/PV/구매일/좌우PV/티어 가져오기 (컬럼 없는 DB도 폴백)
-    let members: Member[] | null = null;
-    let e2: { message: string } | null = null;
-    {
-      const resp = await supabase
-        .from("members")
-        .select(
-          "member_id, name, nominal_rank, current_rank, rank, driving_side, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv, tier_grade, tier_points, tier_title"
-        )
-        .in("member_id", allIds);
-      members = (resp.data as Member[] | null) ?? null;
-      e2 = resp.error ? { message: resp.error.message } : null;
-    }
-    if (e2) {
-      const fallbackA = await supabase
-        .from("members")
-        .select("member_id, name, current_rank, rank, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv")
-        .in("member_id", allIds);
-      if (!fallbackA.error) {
-        members = ((fallbackA.data ?? []) as Array<{ member_id: number; name: string | null; current_rank?: string | null; rank?: string | null; cumulative_pv?: number | null; last_purchase_date?: string | null; left_line_pv?: number | null; right_line_pv?: number | null }>).map((m) => ({
-          ...m,
-          nominal_rank: null,
-          current_rank: m.current_rank ?? null,
-          rank: m.rank ?? null,
-          driving_side: "L",
-          cumulative_pv: m.cumulative_pv ?? null,
-          last_purchase_date: m.last_purchase_date ?? null,
-          left_line_pv: m.left_line_pv ?? 0,
-          right_line_pv: m.right_line_pv ?? 0,
-          tier_grade: null,
-          tier_points: null,
-          tier_title: null,
-        }));
-      } else {
-        const fallbackB = await supabase
-          .from("members")
-          .select("member_id, name, nominal_rank, rank, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv")
-          .in("member_id", allIds);
-        if (!fallbackB.error) {
-          members = ((fallbackB.data ?? []) as Array<{ member_id: number; name: string | null; nominal_rank?: string | null; rank?: string | null; cumulative_pv?: number | null; last_purchase_date?: string | null; left_line_pv?: number | null; right_line_pv?: number | null }>).map((m) => ({
-            ...m,
-            nominal_rank: m.nominal_rank ?? null,
-            current_rank: null,
-            rank: m.rank ?? null,
-            driving_side: "L",
-            cumulative_pv: m.cumulative_pv ?? null,
-            last_purchase_date: m.last_purchase_date ?? null,
-            left_line_pv: m.left_line_pv ?? 0,
-            right_line_pv: m.right_line_pv ?? 0,
-            tier_grade: null,
-            tier_points: null,
-            tier_title: null,
-          }));
-        } else {
-          const fallbackC = await supabase
-            .from("members")
-            .select("member_id, name")
-            .in("member_id", allIds);
-          if (fallbackC.error) return NextResponse.json({ ok: false, error: fallbackC.error.message }, { status: 500 });
-          members = ((fallbackC.data ?? []) as Array<{ member_id: number; name: string | null }>).map((m) => ({
-            ...m,
-            rank: null,
-            driving_side: "L",
-            cumulative_pv: null,
-            last_purchase_date: null,
-            left_line_pv: 0,
-            right_line_pv: 0,
-            tier_grade: null,
-            tier_points: null,
-            tier_title: null,
-          }));
-        }
+    // 3) members에서 이름/등급/PV/구매일/좌우PV/티어 가져오기 (컬럼 유무에 따라 단계적 폴백)
+    const selectPlans = [
+      "member_id, name, nominal_rank, current_rank, rank, driving_side, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv, tier_grade, tier_points, tier_title",
+      "member_id, name, current_rank, rank, driving_side, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv, tier_grade, tier_points, tier_title",
+      "member_id, name, nominal_rank, rank, driving_side, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv, tier_grade, tier_points, tier_title",
+      "member_id, name, rank, driving_side, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv, tier_grade, tier_points, tier_title",
+      "member_id, name, current_rank, rank, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv",
+      "member_id, name, nominal_rank, rank, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv",
+      "member_id, name, rank, cumulative_pv, last_purchase_date, left_line_pv, right_line_pv",
+      "member_id, name, current_rank, rank, cumulative_pv, last_purchase_date",
+      "member_id, name, nominal_rank, rank, cumulative_pv, last_purchase_date",
+      "member_id, name, rank, cumulative_pv, last_purchase_date",
+      "member_id, name, rank",
+      "member_id, name",
+    ];
+
+    let members: Member[] = [];
+    let lastErr: any = null;
+    let loaded = false;
+    for (const cols of selectPlans) {
+      const resp = await supabase.from("members").select(cols).in("member_id", allIds);
+      if (resp.error) {
+        lastErr = resp.error;
+        continue;
       }
-      e2 = null;
+      const raw = (resp.data || []) as Array<Record<string, any>>;
+      members = raw.map((m) => ({
+        member_id: Number(m.member_id),
+        name: m.name ?? null,
+        nominal_rank: m.nominal_rank ?? null,
+        current_rank: m.current_rank ?? null,
+        rank: m.rank ?? null,
+        driving_side: m.driving_side === "R" ? "R" : "L",
+        cumulative_pv: m.cumulative_pv ?? null,
+        last_purchase_date: m.last_purchase_date ?? null,
+        left_line_pv: m.left_line_pv ?? 0,
+        right_line_pv: m.right_line_pv ?? 0,
+        tier_grade: m.tier_grade ?? null,
+        tier_points: m.tier_points ?? null,
+        tier_title: m.tier_title ?? null,
+      }));
+      loaded = true;
+      break;
+    }
+    if (!loaded && lastErr) {
+      return NextResponse.json({ ok: false, error: lastErr.message }, { status: 500 });
     }
 
     const nameMap = new Map<number, string>();
