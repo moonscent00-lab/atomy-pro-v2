@@ -14,7 +14,7 @@ type ParsedMember = {
   confidence: number;
 };
 
-const RANKS = ["다이아몬드마스터", "세일즈마스터", "특약점", "대리점", "에이전트", "판매원", "회원", "자가소비회원"];
+const RANKS = ["다이아몬드마스터", "세일즈마스터", "특약점", "대리점", "에이전트", "판매원", "회원", "자가소비회원", "총판"];
 const NOISE_LINE = /^(명목|현재|법인|센터|인증|가입일|탈퇴일|매출일|누적PV|좌\s*좌|좌\s*우|우\s*좌|우\s*우|좌|우|ROOT|L|R)$/;
 const MARKER_ONLY = /^[🤍💛♡]\s*$/;
 const DEPTH_AND_ID = /(\d{1,3})\s+(\d{7,9})\b/;
@@ -111,9 +111,20 @@ function pickName(lines: string[]) {
 }
 
 function pickRank(lines: string[]) {
-  const idx = lines.findIndex((l) => /^현재(?:\s+.*)?$/.test(l));
+  for (const line of lines) {
+    const m1 = line.match(/현재(?:등급)?\s*[:：]?\s*(.+)$/);
+    if (m1?.[1]) {
+      const v = m1[1].trim();
+      for (const r of RANKS) if (v.includes(r)) return r;
+      if (v && !NOISE_LINE.test(v)) return v;
+    }
+    const m2 = line.match(/현재(?:등급)?\s*(자가소비회원|회원|판매원|에이전트|특약점|대리점|총판)/);
+    if (m2?.[1]) return m2[1];
+  }
+
+  const idx = lines.findIndex((l) => /^현재(?:등급)?(?:\s+.*)?$/.test(l));
   if (idx >= 0) {
-    const inline = lines[idx].replace(/^현재\s*/, "").trim();
+    const inline = lines[idx].replace(/^현재(?:등급)?\s*/, "").trim();
     if (inline) return inline;
     const next = (lines[idx + 1] || "").trim();
     if (next && !NOISE_LINE.test(next) && !DEPTH_AND_ID.test(next)) return next;
@@ -131,9 +142,18 @@ function pickRank(lines: string[]) {
 }
 
 function pickNominalRank(lines: string[]) {
-  const idx = lines.findIndex((l) => /^명목(?:\s+.*)?$/.test(l));
+  for (const line of lines) {
+    const m1 = line.match(/명목(?:등급)?\s*[:：]?\s*(.+)$/);
+    if (m1?.[1]) {
+      const v = m1[1].trim();
+      for (const r of RANKS) if (v.includes(r)) return r;
+      if (v && !NOISE_LINE.test(v)) return v;
+    }
+  }
+
+  const idx = lines.findIndex((l) => /^명목(?:등급)?(?:\s+.*)?$/.test(l));
   if (idx >= 0) {
-    const inline = lines[idx].replace(/^명목\s*/, "").trim();
+    const inline = lines[idx].replace(/^명목(?:등급)?\s*/, "").trim();
     if (inline) return inline;
     const next = (lines[idx + 1] || "").trim();
     if (next && !NOISE_LINE.test(next) && !DEPTH_AND_ID.test(next)) return next;
@@ -205,7 +225,7 @@ function parseMembers(raw: string) {
     out.push({
       member_id,
       name: name || `회원_${member_id}`,
-      rank: nominal_rank,
+      rank: current_rank || nominal_rank,
       nominal_rank,
       current_rank,
       cumulative_pv,
