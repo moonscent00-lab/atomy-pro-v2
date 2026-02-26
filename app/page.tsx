@@ -2331,7 +2331,7 @@ export default function Home(
           <div style={styles.panel}>
             <div style={styles.sectionTitle}>📄 PDF 파서</div>
             <div style={styles.help}>
-              - PDF 업로드 → 자동 파싱(이름/아이디/명목등급/현재등급/누적PV/센터/법인/매출일)
+              - PDF 업로드 → 자동 파싱(이름/아이디/명목/등급/누적PV/센터/법인/매출일)
             </div>
             <div style={styles.help}>- 수정 후 멤버저장 탭으로 보낼 수 있습니다.</div>
             <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -2362,7 +2362,7 @@ export default function Home(
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: t.surface2 }}>
-                      {["아이디", "이름", "명목등급", "현재등급", "누적PV", "센터", "법인", "매출일", "신뢰도"].map((h) => (
+                      {["아이디", "이름", "명목", "등급", "누적PV", "센터", "법인", "매출일", "신뢰도"].map((h) => (
                         <th key={h} style={{ borderBottom: `1px solid ${t.border}`, textAlign: "left", padding: "8px 10px" }}>
                           {h}
                         </th>
