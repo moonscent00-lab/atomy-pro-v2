@@ -1,7 +1,5 @@
 export const runtime = "nodejs";
 
-import { createRequire } from "node:module";
-
 async function ensurePdfJsPolyfills() {
   const g = globalThis as any;
   if (!g.DOMMatrix) {
@@ -10,6 +8,20 @@ async function ensurePdfJsPolyfills() {
     g.DOMMatrix = DOMMatrixCtor;
     if (!g.DOMMatrixReadOnly) g.DOMMatrixReadOnly = DOMMatrixCtor;
   }
+}
+
+async function getWorkerDataUrl() {
+  const g = globalThis as any;
+  if (typeof g.__pdfWorkerDataUrl === "string" && g.__pdfWorkerDataUrl.startsWith("data:text/javascript")) {
+    return g.__pdfWorkerDataUrl as string;
+  }
+  const url = "https://cdn.jsdelivr.net/npm/pdf-parse@2.4.5/dist/pdf-parse/web/pdf.worker.min.mjs";
+  const res = await fetch(url, { cache: "force-cache" });
+  if (!res.ok) throw new Error(`worker fetch 실패 (${res.status})`);
+  const text = await res.text();
+  const dataUrl = `data:text/javascript;base64,${Buffer.from(text, "utf8").toString("base64")}`;
+  g.__pdfWorkerDataUrl = dataUrl;
+  return dataUrl;
 }
 
 export async function POST(req: Request) {
@@ -28,9 +40,7 @@ export async function POST(req: Request) {
       return Response.json({ ok: false, error: "pdf-parse 로딩 실패" }, { status: 500 });
     }
     if (typeof PDFParse?.setWorker === "function") {
-      const require = createRequire(import.meta.url);
-      const workerMod: any = require("pdf-parse/worker");
-      const workerSrc = workerMod?.getData?.() || workerMod?.getPath?.() || "";
+      const workerSrc = await getWorkerDataUrl();
       PDFParse.setWorker(workerSrc);
     }
 
