@@ -1,7 +1,5 @@
 export const runtime = "nodejs";
 
-import { createRequire } from "node:module";
-
 async function ensurePdfJsPolyfills() {
   const g = globalThis as any;
   if (!g.DOMMatrix) {
@@ -22,34 +20,25 @@ export async function POST(req: Request) {
     }
 
     await ensurePdfJsPolyfills();
-    const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    // Serverless에서 fake worker 오류 방지: workerSrc를 data-url로 명시.
-    if (pdfjs?.GlobalWorkerOptions) {
-      const require = createRequire(import.meta.url);
-      const workerMod: any = require("pdf-parse/worker");
-      const workerSrc = workerMod?.getData?.() || workerMod?.getPath?.() || "";
-      pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+    const pdfMod: any = await import("pdf-parse");
+    const PDFParse = pdfMod?.PDFParse ?? pdfMod?.default?.PDFParse ?? pdfMod?.default;
+    if (!PDFParse) {
+      return Response.json({ ok: false, error: "pdf-parse 로딩 실패" }, { status: 500 });
+    }
+    if (typeof PDFParse?.setWorker === "function") {
+      PDFParse.setWorker("https://cdn.jsdelivr.net/npm/pdf-parse@2.4.5/dist/pdf-parse/web/pdf.worker.min.mjs");
     }
 
     let mergedText = "";
     for (let i = 0; i < files.length; i += 1) {
       const f = files[i] as File;
       const safeName = (f.name || `file-${i + 1}.pdf`).replace(/[^\w.\-가-힣]/g, "_");
-      const bytes = new Uint8Array(await f.arrayBuffer());
-      const loadingTask = pdfjs.getDocument({ data: bytes, useWorkerFetch: false });
-      const doc = await loadingTask.promise;
-      let text = "";
-      for (let p = 1; p <= doc.numPages; p += 1) {
-        const page = await doc.getPage(p);
-        const content = await page.getTextContent();
-        const line = (content.items || [])
-          .map((it: any) => String(it?.str || ""))
-          .join(" ")
-          .trim();
-        if (line) text += `${line}\n`;
-        page.cleanup();
-      }
-      await doc.destroy();
+      const data = new Uint8Array(await f.arrayBuffer());
+      const parser = new PDFParse({ data, useWorkerFetch: true });
+      const result = await parser.getText();
+      await parser.destroy();
+
+      let text = String(result?.text || "");
 
       text = String(text || "")
         .replace(/\r/g, "")
