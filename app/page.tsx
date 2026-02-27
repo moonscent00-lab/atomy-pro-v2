@@ -1975,7 +1975,8 @@ export default function Home(
                       const ownerRRatio = clamp01(dashboardData.owner.right_line_pv / ownerTarget);
                       const ownerLDef = Math.max(0, ownerTarget - dashboardData.owner.left_line_pv);
                       const ownerRDef = Math.max(0, ownerTarget - dashboardData.owner.right_line_pv);
-                      const ownerNear = ownerLDef <= 50_000 || ownerRDef <= 50_000;
+                      const ownerDefSum = ownerLDef + ownerRDef;
+                      const ownerNear = ownerDefSum > 0 && ownerDefSum <= 50_000;
                       return (
                         <div style={{ marginTop: 10, padding: 10, border: `1px solid ${ownerNear ? "#F59E0B" : t.border}`, borderRadius: 10, background: t.surface }}>
                           <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6 }}>
@@ -2060,8 +2061,9 @@ export default function Home(
                           const mobileCard = isMobile;
                           const lRatio = clamp01(f.left_line_pv / Math.max(1, f.target_threshold));
                           const rRatio = clamp01(f.right_line_pv / Math.max(1, f.target_threshold));
-                          const isNear = f.부족.left <= 50_000 || f.부족.right <= 50_000;
                           const isReady = f.부족.left <= 0 && f.부족.right <= 0 && f.부족.own <= 0;
+                          const nearGapSum = Math.max(0, f.부족.left) + Math.max(0, f.부족.right);
+                          const isNear = !isReady && nearGapSum <= 50_000;
                           const needOwn = f.부족.own > 0;
                           const accent = isReady ? "#16A34A" : needOwn ? "#DC2626" : isNear ? "#F59E0B" : t.border;
                           return (
