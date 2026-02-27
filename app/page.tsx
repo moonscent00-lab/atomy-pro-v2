@@ -161,6 +161,45 @@ function normalizeChildren(node: TreeNode | null): TreeNode | null {
   return { ...node, children: outKids };
 }
 
+function pickChildBySide(node: TreeNode | null, side: "L" | "R"): TreeNode | null {
+  if (!node?.children?.length) return null;
+  const byTag = node.children.find((c) => c?.side === side);
+  if (byTag) return byTag;
+  return side === "L" ? node.children[0] ?? null : node.children[1] ?? null;
+}
+
+function collapseLeavingForSide(node: TreeNode | null, side: "L" | "R"): TreeNode | null {
+  let cur = node;
+  let guard = 0;
+  while (cur?.id && cur.is_leaving && guard < 200) {
+    const sameSide = pickChildBySide(cur, side);
+    const otherSide = pickChildBySide(cur, side === "L" ? "R" : "L");
+    cur = sameSide || otherSide || null;
+    guard += 1;
+  }
+  if (!cur?.id) return null;
+  return { ...cur, side };
+}
+
+function collapseLeavingTree(node: TreeNode | null): TreeNode | null {
+  if (!node?.id) return node;
+  const leftRaw = pickChildBySide(node, "L");
+  const rightRaw = pickChildBySide(node, "R");
+  const left = collapseLeavingForSide(leftRaw, "L");
+  const right = collapseLeavingForSide(rightRaw, "R");
+
+  const outChildren: TreeNode[] = [];
+  if (left) {
+    const x = collapseLeavingTree(left);
+    if (x) outChildren.push({ ...x, side: "L" });
+  }
+  if (right) {
+    const x = collapseLeavingTree(right);
+    if (x) outChildren.push({ ...x, side: "R" });
+  }
+  return { ...node, children: outChildren };
+}
+
 function buildLevels(root: TreeNode, depth: number) {
   // Builds a complete binary level array up to `depth`.
   // levels[d] length = 2^d (placeholders included)
@@ -1159,6 +1198,14 @@ export default function Home(
   const [driveChainL, setDriveChainL] = useState<TreeNode[]>([]);
   const [driveChainR, setDriveChainR] = useState<TreeNode[]>([]);
   const [showDrivingPanel, setShowDrivingPanel] = useState(false);
+  const [hideLeavingInTree, setHideLeavingInTree] = useState(true);
+
+  const effectiveTreeRoot = useMemo(() => {
+    const normalized = normalizeChildren((treeData?.tree as TreeNode) || null);
+    if (!normalized) return null;
+    if (!hideLeavingInTree) return normalized;
+    return collapseLeavingTree(normalized);
+  }, [treeData?.tree, hideLeavingInTree]);
 
   useEffect(() => {
     if (!authUser?.member_id) return;
@@ -1504,17 +1551,17 @@ export default function Home(
   }
 
   useEffect(() => {
-    if (!treeData?.ok || !treeData?.tree?.id) {
+    if (!effectiveTreeRoot?.id) {
       setDriveChainL([]);
       setDriveChainR([]);
       return;
     }
-    const rootId = Number(treeData.tree.id);
-    const anchor = driveAnchorId && findNodeById(treeData.tree, driveAnchorId) ? driveAnchorId : rootId;
+    const rootId = Number(effectiveTreeRoot.id);
+    const anchor = driveAnchorId && findNodeById(effectiveTreeRoot, driveAnchorId) ? driveAnchorId : rootId;
     if (anchor !== driveAnchorId) setDriveAnchorId(anchor);
-    setDriveChainL(buildDrivingChain(treeData.tree, anchor, "L"));
-    setDriveChainR(buildDrivingChain(treeData.tree, anchor, "R"));
-  }, [treeData, driveAnchorId]);
+    setDriveChainL(buildDrivingChain(effectiveTreeRoot, anchor, "L"));
+    setDriveChainR(buildDrivingChain(effectiveTreeRoot, anchor, "R"));
+  }, [effectiveTreeRoot, driveAnchorId]);
 
   useEffect(() => {
     if (mode !== "tree") return;
@@ -2594,6 +2641,9 @@ export default function Home(
               <button type="button" style={styles.btn(useFullDepth ? "primary" : "ghost")} onClick={() => setUseFullDepth((v) => !v)}>
                 {isMobile ? "ALL" : "최대 30Depth"}
               </button>
+              <button type="button" style={styles.btn(hideLeavingInTree ? "primary" : "ghost")} onClick={() => setHideLeavingInTree((v) => !v)}>
+                {isMobile ? "탈퇴숨김" : hideLeavingInTree ? "탈퇴 숨김 ON" : "탈퇴 숨김 OFF"}
+              </button>
               <button
                 style={{ ...styles.btn("primary", treeLoading), minWidth: isMobile ? 42 : 84, padding: isMobile ? "8px 10px" : "8px 12px" }}
                 disabled={treeLoading}
@@ -2730,14 +2780,14 @@ export default function Home(
             </div>
 
             <div style={{ marginTop: 14 }}>
-              {treeData?.ok && treeData?.tree ? (
+              {treeData?.ok && effectiveTreeRoot ? (
                 <>
                   <div style={{ ...styles.help, marginBottom: 10 }}>
                     nodes: <b style={{ color: t.text }}>{treeData?.stats?.nodes ?? "-"}</b> / edges:{" "}
                     <b style={{ color: t.text }}>{treeData?.stats?.edges ?? "-"}</b>
                   </div>
                   <TreeBinaryView
-                    root={treeData.tree as TreeNode}
+                    root={effectiveTreeRoot as TreeNode}
                     depth={useFullDepth ? 30 : clampDepth(treeDepth)}
                     theme={t}
                     isMobile={isMobile}
