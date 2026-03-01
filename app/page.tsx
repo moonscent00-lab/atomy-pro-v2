@@ -4,6 +4,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 type Member = { member_id: number; name: string };
+type MemberDetailLite = { member_id: number; name: string; center: string; rank: string; corporation: string };
 
 type TreeNode = {
   id: number;
@@ -959,6 +960,18 @@ export default function Home(
 
   // ===== (B) Bulk members =====
   const [membersText, setMembersText] = useState("");
+  const [quickCreate, setQuickCreate] = useState({
+    member_id: "",
+    name: "",
+    center: "",
+    sponsor_id: "",
+  });
+  const [quickCreateLoading, setQuickCreateLoading] = useState(false);
+  const [quickEditQ, setQuickEditQ] = useState("");
+  const quickEditQd = useDebounced(quickEditQ, 250);
+  const [quickEditItems, setQuickEditItems] = useState<Member[]>([]);
+  const [quickEditLoading, setQuickEditLoading] = useState(false);
+  const [quickEditForm, setQuickEditForm] = useState<MemberDetailLite | null>(null);
   const [importResult, setImportResult] = useState<any>(null);
   const [resetDbLoading, setResetDbLoading] = useState(false);
   const [salesText, setSalesText] = useState("");
@@ -990,6 +1003,137 @@ export default function Home(
     setImportResult(json);
     if (res.ok && json?.ok) setToast({ type: "ok", msg: "멤버 저장 완료 ✅" });
     else setToast({ type: "err", msg: json?.error ?? `멤버 저장 실패 (HTTP ${res.status})` });
+  }
+
+  useEffect(() => {
+    const q = quickEditQd.trim();
+    if (!q) {
+      setQuickEditItems([]);
+      return;
+    }
+    fetchMembers(q)
+      .then(({ res, json }) => {
+        if (!res.ok || !json?.ok) {
+          setQuickEditItems([]);
+          return;
+        }
+        const items: Member[] = json.items ?? json.results ?? [];
+        setQuickEditItems(items);
+      })
+      .catch(() => setQuickEditItems([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quickEditQd]);
+
+  async function quickCreateMember() {
+    const memberId = quickCreate.member_id.replace(/\D/g, "").slice(0, 8);
+    const sponsorId = quickCreate.sponsor_id.replace(/\D/g, "").slice(0, 8);
+    const name = quickCreate.name.trim();
+    const center = quickCreate.center.trim();
+    if (!/^\d{8}$/.test(memberId)) {
+      setToast({ type: "err", msg: "회원번호는 8자리 숫자여야 합니다." });
+      return;
+    }
+    if (!name) {
+      setToast({ type: "err", msg: "이름을 입력해 주세요." });
+      return;
+    }
+    if (!/^\d{8}$/.test(sponsorId)) {
+      setToast({ type: "err", msg: "스폰서 번호는 8자리 숫자여야 합니다." });
+      return;
+    }
+    setQuickCreateLoading(true);
+    setToast(null);
+    try {
+      const res = await fetch("/api/members-quick-save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "create",
+          member_id: Number(memberId),
+          name,
+          center: center || "센터",
+          sponsor_id: Number(sponsorId),
+        }),
+      });
+      const text = await res.text();
+      const json = text ? JSON.parse(text) : null;
+      if (!res.ok || !json?.ok) {
+        setToast({ type: "err", msg: "간편 등록 실패: " + (json?.error ?? `HTTP ${res.status}`) });
+        return;
+      }
+      const side = json?.side ? ` (${json.side})` : "";
+      setToast({ type: "ok", msg: `신규 회원 등록 완료 ✅ 스폰서 자동 연결${side}` });
+      setQuickCreate((prev) => ({ ...prev, member_id: "", name: "" }));
+      await loadDashboard();
+      setTreeNeedsReload(true);
+    } catch (e: any) {
+      setToast({ type: "err", msg: "간편 등록 오류: " + (e?.message ?? String(e)) });
+    } finally {
+      setQuickCreateLoading(false);
+    }
+  }
+
+  async function selectQuickEditMember(item: Member) {
+    setQuickEditLoading(true);
+    setToast(null);
+    try {
+      const res = await fetch(`/api/member-detail?member_id=${item.member_id}`, { cache: "no-store" });
+      const text = await res.text();
+      const json = text ? JSON.parse(text) : null;
+      if (!res.ok || !json?.ok || !json?.item) {
+        setToast({ type: "err", msg: "회원 조회 실패: " + (json?.error ?? `HTTP ${res.status}`) });
+        return;
+      }
+      setQuickEditForm(json.item as MemberDetailLite);
+      setQuickEditQ(`${json.item.name} ${json.item.member_id}`);
+      setQuickEditItems([]);
+    } catch (e: any) {
+      setToast({ type: "err", msg: "회원 조회 오류: " + (e?.message ?? String(e)) });
+    } finally {
+      setQuickEditLoading(false);
+    }
+  }
+
+  async function saveQuickEditMember() {
+    if (!quickEditForm) return;
+    const memberId = Number(quickEditForm.member_id);
+    if (!Number.isFinite(memberId) || memberId <= 0) {
+      setToast({ type: "err", msg: "유효한 회원번호가 필요합니다." });
+      return;
+    }
+    if (!quickEditForm.name.trim()) {
+      setToast({ type: "err", msg: "이름을 입력해 주세요." });
+      return;
+    }
+    setQuickEditLoading(true);
+    setToast(null);
+    try {
+      const res = await fetch("/api/members-quick-save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "update",
+          member_id: memberId,
+          name: quickEditForm.name.trim(),
+          center: quickEditForm.center.trim(),
+          corporation: quickEditForm.corporation.trim() || "본사",
+        }),
+      });
+      const text = await res.text();
+      const json = text ? JSON.parse(text) : null;
+      if (!res.ok || !json?.ok) {
+        setToast({ type: "err", msg: "회원 수정 실패: " + (json?.error ?? `HTTP ${res.status}`) });
+        return;
+      }
+      setToast({ type: "ok", msg: "회원 수정 완료 ✅" });
+      await loadDashboard();
+      if (mode === "tree") await loadTree();
+      else setTreeNeedsReload(true);
+    } catch (e: any) {
+      setToast({ type: "err", msg: "회원 수정 오류: " + (e?.message ?? String(e)) });
+    } finally {
+      setQuickEditLoading(false);
+    }
   }
 
   async function resetTestDb() {
@@ -2378,6 +2522,100 @@ export default function Home(
 
         {mode === "members" && (
           <div style={styles.panel}>
+            <div style={styles.sectionTitle}>⚡ 간편 신규 등록</div>
+            <div style={styles.help}>- 신규 1~2명은 여기서 바로 등록 + 스폰서 자동 연결 가능합니다. (좌/우는 빈 자리 자동 선택)</div>
+            <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(140px, 1fr))", gap: 8 }}>
+              <input
+                style={styles.input}
+                inputMode="numeric"
+                maxLength={8}
+                value={quickCreate.member_id}
+                onChange={(e) => setQuickCreate((p) => ({ ...p, member_id: e.target.value.replace(/\D/g, "").slice(0, 8) }))}
+                placeholder="회원번호 8자리"
+              />
+              <input
+                style={styles.input}
+                value={quickCreate.name}
+                onChange={(e) => setQuickCreate((p) => ({ ...p, name: e.target.value }))}
+                placeholder="이름"
+              />
+              <input
+                style={styles.input}
+                value={quickCreate.center}
+                onChange={(e) => setQuickCreate((p) => ({ ...p, center: e.target.value }))}
+                placeholder="센터"
+              />
+              <input
+                style={styles.input}
+                inputMode="numeric"
+                maxLength={8}
+                value={quickCreate.sponsor_id}
+                onChange={(e) => setQuickCreate((p) => ({ ...p, sponsor_id: e.target.value.replace(/\D/g, "").slice(0, 8) }))}
+                placeholder="스폰서 8자리"
+              />
+            </div>
+            <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
+              <button style={styles.btn("primary", quickCreateLoading)} disabled={quickCreateLoading} onClick={quickCreateMember}>
+                {quickCreateLoading ? "등록 중..." : "신규 가입 등록"}
+              </button>
+            </div>
+
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${t.border}` }}>
+              <div style={styles.sectionTitle}>🛠 회원 빠른 수정</div>
+              <div style={styles.help}>- 이름 파싱이 잘못된 회원은 여기서 검색 후 바로 수정하세요.</div>
+              <div style={{ marginTop: 10 }}>
+                <input
+                  style={styles.input}
+                  value={quickEditQ}
+                  onChange={(e) => setQuickEditQ(e.target.value)}
+                  placeholder="회원번호 또는 이름 검색"
+                />
+              </div>
+              {quickEditItems.length > 0 && (
+                <div style={{ ...styles.listBox, marginTop: 8, maxHeight: 180, overflow: "auto" }}>
+                  {quickEditItems.map((m) => (
+                    <div
+                      key={`qe-${m.member_id}`}
+                      style={styles.listItem(quickEditForm?.member_id === m.member_id)}
+                      onClick={() => selectQuickEditMember(m)}
+                    >
+                      <div>{m.name}</div>
+                      <span style={styles.badge}>{m.member_id}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {quickEditForm && (
+                <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(120px, 1fr))", gap: 8 }}>
+                  <input style={styles.input} value={String(quickEditForm.member_id)} readOnly />
+                  <input
+                    style={styles.input}
+                    value={quickEditForm.name}
+                    onChange={(e) => setQuickEditForm((p) => (p ? { ...p, name: e.target.value } : p))}
+                    placeholder="이름"
+                  />
+                  <input
+                    style={styles.input}
+                    value={quickEditForm.center || ""}
+                    onChange={(e) => setQuickEditForm((p) => (p ? { ...p, center: e.target.value } : p))}
+                    placeholder="센터"
+                  />
+                  <input
+                    style={styles.input}
+                    value={quickEditForm.corporation || ""}
+                    onChange={(e) => setQuickEditForm((p) => (p ? { ...p, corporation: e.target.value } : p))}
+                    placeholder="법인"
+                  />
+                </div>
+              )}
+              <div style={{ marginTop: 10, display: "flex", gap: 10 }}>
+                <button style={styles.btn("primary", quickEditLoading || !quickEditForm)} disabled={quickEditLoading || !quickEditForm} onClick={saveQuickEditMember}>
+                  {quickEditLoading ? "저장 중..." : "수정 저장"}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${t.border}` }}>
             <div style={styles.sectionTitle}>📄 PDF 파서</div>
             <div style={styles.help}>
               - PDF 업로드 → 자동 파싱(이름/아이디/명목/등급/누적PV/센터/법인/매출일)
@@ -2513,6 +2751,7 @@ export default function Home(
                 <pre style={{ ...styles.code, marginTop: 8, maxHeight: 260 }}>{pdfRaw}</pre>
               </details>
             ) : null}
+            </div>
           </div>
         )}
 
