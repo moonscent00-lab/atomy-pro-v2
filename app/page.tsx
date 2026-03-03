@@ -798,6 +798,14 @@ export default function Home(
   const [resetMode, setResetMode] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [loginForm, setLoginForm] = useState({ member_id: "", password: "" });
+  const [signupMode, setSignupMode] = useState(false);
+  const [signupLoading, setSignupLoading] = useState(false);
+  const [signupForm, setSignupForm] = useState({
+    member_id: "",
+    name: "",
+    center: "",
+    sponsor_id: "",
+  });
   const [resetForm, setResetForm] = useState({ member_id: "", newPassword: "", adminCode: "" });
   const [dashboardLoading, setDashboardLoading] = useState(false);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -1037,7 +1045,7 @@ export default function Home(
       setToast({ type: "err", msg: "이름을 입력해 주세요." });
       return;
     }
-    if (!/^\d{8}$/.test(sponsorId)) {
+    if (sponsorId && !/^\d{8}$/.test(sponsorId)) {
       setToast({ type: "err", msg: "스폰서 번호는 8자리 숫자여야 합니다." });
       return;
     }
@@ -1052,7 +1060,7 @@ export default function Home(
           member_id: Number(memberId),
           name,
           center: center || "센터",
-          sponsor_id: Number(sponsorId),
+          sponsor_id: sponsorId ? Number(sponsorId) : null,
         }),
       });
       const text = await res.text();
@@ -1062,7 +1070,8 @@ export default function Home(
         return;
       }
       const side = json?.side ? ` (${json.side})` : "";
-      setToast({ type: "ok", msg: `신규 회원 등록 완료 ✅ 스폰서 자동 연결${side}` });
+      const msg = json?.linked ? `신규 회원 등록 완료 ✅ 스폰서 자동 연결${side}` : "신규 회원 등록 완료 ✅";
+      setToast({ type: json?.warning ? "err" : "ok", msg: json?.warning ? `${msg} · ${json.warning}` : msg });
       setQuickCreate((prev) => ({ ...prev, member_id: "", name: "" }));
       await loadDashboard();
       setTreeNeedsReload(true);
@@ -1391,6 +1400,12 @@ export default function Home(
       json = null;
     }
     if (!res.ok || !json?.ok) {
+      if (setupMode && json?.code === "MEMBER_NOT_FOUND") {
+        setSignupMode(true);
+        setSignupForm((p) => ({ ...p, member_id: loginForm.member_id.trim() }));
+        setToast({ type: "err", msg: "계보도에 없는 아이디입니다. 아래 간편가입 후 바로 시작하세요." });
+        return;
+      }
       setToast({ type: "err", msg: json?.error ?? `로그인 실패 (HTTP ${res.status})` });
       return;
     }
@@ -1403,6 +1418,85 @@ export default function Home(
     setAuthUser(json.user);
     setToast({ type: "ok", msg: setupMode ? "비밀번호 설정 후 로그인 완료 ✅" : "로그인 완료 ✅" });
     setMode("dashboard");
+  }
+
+  async function submitQuickSignupFromLogin() {
+    const member_id = signupForm.member_id.trim();
+    const name = signupForm.name.trim();
+    const center = signupForm.center.trim();
+    const sponsor_id = signupForm.sponsor_id.trim();
+
+    if (!/^\d{8}$/.test(member_id)) {
+      setToast({ type: "err", msg: "아이디는 8자리 숫자여야 합니다." });
+      return;
+    }
+    if (!name) {
+      setToast({ type: "err", msg: "이름을 입력해 주세요." });
+      return;
+    }
+    if (!loginForm.password.trim()) {
+      setToast({ type: "err", msg: "비밀번호를 먼저 입력해 주세요." });
+      return;
+    }
+    if (sponsor_id && !/^\d{8}$/.test(sponsor_id)) {
+      setToast({ type: "err", msg: "스폰서 번호는 8자리 숫자여야 합니다." });
+      return;
+    }
+
+    setSignupLoading(true);
+    setToast(null);
+    try {
+      const saveRes = await fetch("/api/members-quick-save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "create",
+          member_id: Number(member_id),
+          name,
+          center: center || "센터",
+          sponsor_id: sponsor_id ? Number(sponsor_id) : null,
+        }),
+      });
+      const saveText = await saveRes.text();
+      const saveJson = saveText ? JSON.parse(saveText) : null;
+      if (!saveRes.ok || !saveJson?.ok) {
+        setToast({ type: "err", msg: "간편가입 실패: " + (saveJson?.error ?? `HTTP ${saveRes.status}`) });
+        return;
+      }
+
+      const loginRes = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "setup",
+          member_id,
+          password: loginForm.password,
+          remember: rememberMe,
+        }),
+      });
+      const loginText = await loginRes.text();
+      const loginJson = loginText ? JSON.parse(loginText) : null;
+      if (!loginRes.ok || !loginJson?.ok) {
+        setToast({ type: "err", msg: "비밀번호 설정 실패: " + (loginJson?.error ?? `HTTP ${loginRes.status}`) });
+        return;
+      }
+
+      setTreeRoot(String(loginJson.user.member_id));
+      setTreeData(null);
+      setSelectedNode(null);
+      setDriveChainL([]);
+      setDriveChainR([]);
+      setDriveAnchorId(null);
+      setAuthUser(loginJson.user);
+      setSetupMode(false);
+      setSignupMode(false);
+      setToast({ type: saveJson?.warning ? "err" : "ok", msg: saveJson?.warning ? `간편가입 + 로그인 완료 ✅ (${saveJson.warning})` : "간편가입 + 로그인 완료 ✅" });
+      setMode("dashboard");
+    } catch (e: any) {
+      setToast({ type: "err", msg: "간편가입 오류: " + (e?.message ?? String(e)) });
+    } finally {
+      setSignupLoading(false);
+    }
   }
 
   async function submitResetPassword() {
@@ -2003,13 +2097,61 @@ export default function Home(
                     <button style={styles.btn("primary")} onClick={submitLogin}>
                       {setupMode ? "비밀번호 설정하고 로그인" : "로그인"}
                     </button>
-                    <button style={styles.btn("ghost")} onClick={() => setSetupMode((v) => !v)}>
+                    <button
+                      style={styles.btn("ghost")}
+                      onClick={() => {
+                        setSetupMode((v) => !v);
+                        setSignupMode(false);
+                      }}
+                    >
                       {setupMode ? "로그인으로" : "처음 비밀번호 설정"}
                     </button>
                     <button style={styles.btn("ghost")} onClick={() => setResetMode(true)}>
                       비밀번호 재설정
                     </button>
                   </div>
+
+                  {setupMode && signupMode ? (
+                    <div style={{ marginTop: 8, border: `1px solid ${t.border}`, borderRadius: 12, padding: 10, background: t.surface2, display: "grid", gap: 8 }}>
+                      <div style={styles.tiny}>간편가입: 계보도에 없는 아이디를 바로 생성합니다. (스폰서는 선택)</div>
+                      <input
+                        style={styles.input}
+                        inputMode="numeric"
+                        maxLength={8}
+                        placeholder="아이디(8자리)"
+                        value={signupForm.member_id}
+                        onChange={(e) => setSignupForm((p) => ({ ...p, member_id: e.target.value.replace(/\D/g, "").slice(0, 8) }))}
+                      />
+                      <input
+                        style={styles.input}
+                        placeholder="이름"
+                        value={signupForm.name}
+                        onChange={(e) => setSignupForm((p) => ({ ...p, name: e.target.value }))}
+                      />
+                      <input
+                        style={styles.input}
+                        placeholder="센터"
+                        value={signupForm.center}
+                        onChange={(e) => setSignupForm((p) => ({ ...p, center: e.target.value }))}
+                      />
+                      <input
+                        style={styles.input}
+                        inputMode="numeric"
+                        maxLength={8}
+                        placeholder="스폰서 아이디(선택)"
+                        value={signupForm.sponsor_id}
+                        onChange={(e) => setSignupForm((p) => ({ ...p, sponsor_id: e.target.value.replace(/\D/g, "").slice(0, 8) }))}
+                      />
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button style={styles.btn("primary", signupLoading)} disabled={signupLoading} onClick={submitQuickSignupFromLogin}>
+                          {signupLoading ? "가입 중..." : "간편가입 후 시작"}
+                        </button>
+                        <button style={styles.btn("ghost")} onClick={() => setSignupMode(false)}>
+                          닫기
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
@@ -2551,7 +2693,7 @@ export default function Home(
                 maxLength={8}
                 value={quickCreate.sponsor_id}
                 onChange={(e) => setQuickCreate((p) => ({ ...p, sponsor_id: e.target.value.replace(/\D/g, "").slice(0, 8) }))}
-                placeholder="스폰서 8자리"
+                placeholder="스폰서 8자리(선택)"
               />
             </div>
             <div style={{ marginTop: 10, display: "flex", gap: 10 }}>

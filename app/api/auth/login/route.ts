@@ -35,7 +35,12 @@ export async function POST(req: NextRequest) {
 
       const mResp = await supabase.from("members").select("member_id").eq("member_id", member_id).maybeSingle();
       if (mResp.error) return NextResponse.json({ ok: false, error: mResp.error.message }, { status: 500 });
-      if (!mResp.data) return NextResponse.json({ ok: false, error: "members에 없는 회원번호입니다." }, { status: 400 });
+      if (!mResp.data) {
+        return NextResponse.json(
+          { ok: false, code: "MEMBER_NOT_FOUND", error: "members에 없는 회원번호입니다." },
+          { status: 400 }
+        );
+      }
 
       const password_hash = hashPassword(password);
       const iResp = await supabase.from("users").insert([{ member_id, password_hash }]);

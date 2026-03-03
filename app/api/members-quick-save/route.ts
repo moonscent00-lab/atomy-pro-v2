@@ -117,6 +117,7 @@ export async function POST(req: NextRequest) {
     if (saveErr) return NextResponse.json({ ok: false, error: saveErr }, { status: 500 });
 
     let usedSide: "L" | "R" | null = null;
+    let warning: string | null = null;
     if (sponsorId != null) {
       const { data: sponsor, error: sponsorErr } = await supabase
         .from("members")
@@ -125,35 +126,37 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
       if (sponsorErr) return NextResponse.json({ ok: false, error: sponsorErr.message }, { status: 500 });
       if (!sponsor?.member_id) {
-        return NextResponse.json({ ok: false, error: "스폰서가 members에 없습니다." }, { status: 400 });
-      }
-
-      if (sideRaw === "L" || sideRaw === "R") {
-        usedSide = sideRaw as "L" | "R";
+        warning = "스폰서가 계보도에 없어 회원만 생성했습니다. 나중에 연결 탭에서 연결해 주세요.";
       } else {
-        const { data: edgeRows, error: edgeErr } = await supabase.from("edges").select("side").eq("parent_id", sponsorId);
-        if (edgeErr) return NextResponse.json({ ok: false, error: edgeErr.message }, { status: 500 });
-        const hasL = (edgeRows || []).some((e: any) => String(e.side).toUpperCase() === "L");
-        const hasR = (edgeRows || []).some((e: any) => String(e.side).toUpperCase() === "R");
-        if (!hasL) usedSide = "L";
-        else if (!hasR) usedSide = "R";
-        else {
-          return NextResponse.json(
-            { ok: false, error: "스폰서 좌/우가 모두 사용 중입니다. 연결 탭에서 직접 L/R 지정 연결해 주세요." },
-            { status: 400 }
-          );
+        if (sideRaw === "L" || sideRaw === "R") {
+          usedSide = sideRaw as "L" | "R";
+        } else {
+          const { data: edgeRows, error: edgeErr } = await supabase.from("edges").select("side").eq("parent_id", sponsorId);
+          if (edgeErr) return NextResponse.json({ ok: false, error: edgeErr.message }, { status: 500 });
+          const hasL = (edgeRows || []).some((e: any) => String(e.side).toUpperCase() === "L");
+          const hasR = (edgeRows || []).some((e: any) => String(e.side).toUpperCase() === "R");
+          if (!hasL) usedSide = "L";
+          else if (!hasR) usedSide = "R";
+          else {
+            warning = "스폰서 좌/우가 모두 사용 중이라 회원만 생성했습니다. 연결 탭에서 직접 연결해 주세요.";
+          }
+        }
+
+        if (usedSide) {
+          const linkResp = await supabase
+            .from("edges")
+            .upsert([{ parent_id: sponsorId, child_id: memberId, side: usedSide }], { onConflict: "child_id" });
+          if (linkResp.error) return NextResponse.json({ ok: false, error: linkResp.error.message }, { status: 500 });
         }
       }
-
-      const linkResp = await supabase.from("edges").upsert([{ parent_id: sponsorId, child_id: memberId, side: usedSide }], { onConflict: "child_id" });
-      if (linkResp.error) return NextResponse.json({ ok: false, error: linkResp.error.message }, { status: 500 });
     }
 
     return NextResponse.json({
       ok: true,
       created: isCreate,
-      linked: sponsorId != null,
+      linked: Boolean(sponsorId != null && usedSide),
       side: usedSide,
+      warning,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message ?? String(e) }, { status: 500 });
