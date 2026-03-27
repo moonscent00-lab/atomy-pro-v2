@@ -2,11 +2,14 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { authCookieMaxAge, authCookieName, signSession, verifyPassword } from "@/lib/auth";
+import { authCookieMaxAge, authCookieName, hashPassword, signSession, verifyPassword } from "@/lib/auth";
 
-function redirectWithMessage(req: NextRequest, kind: "ok" | "err", message: string) {
+function redirectWithMessage(req: NextRequest, kind: "ok" | "err", message: string, extra?: Record<string, string>) {
   const url = new URL("/", req.nextUrl.origin);
   url.searchParams.set(kind === "ok" ? "auth_ok" : "auth_error", message);
+  if (extra) {
+    for (const [k, v] of Object.entries(extra)) url.searchParams.set(k, v);
+  }
   return NextResponse.redirect(url);
 }
 
@@ -16,6 +19,7 @@ export async function POST(req: NextRequest) {
     const member_id = Number(form.get("member_id") || 0);
     const password = String(form.get("password") || "");
     const remember = String(form.get("remember") || "") === "1";
+    const action = String(form.get("action") || "login");
 
     if (!/^\d{8}$/.test(String(member_id))) {
       return redirectWithMessage(req, "err", "아이디는 8자리 숫자여야 합니다.");
@@ -34,11 +38,37 @@ export async function POST(req: NextRequest) {
     }
 
     const user = uResp.data as { member_id: number; password_hash: string } | null;
-    if (!user) {
-      return redirectWithMessage(req, "err", "계정이 없습니다. 먼저 비밀번호를 설정해 주세요.");
-    }
-    if (!verifyPassword(password, user.password_hash)) {
-      return redirectWithMessage(req, "err", "아이디 또는 비밀번호가 올바르지 않습니다.");
+
+    if (action === "setup") {
+      if (user) {
+        return redirectWithMessage(req, "err", "이미 비밀번호가 설정된 계정입니다.");
+      }
+
+      const mResp = await supabase.from("members").select("member_id").eq("member_id", member_id).maybeSingle();
+      if (mResp.error) {
+        return redirectWithMessage(req, "err", mResp.error.message);
+      }
+      if (!mResp.data) {
+        return redirectWithMessage(
+          req,
+          "err",
+          "계보도에 없는 아이디입니다. 아래 간편가입 후 바로 시작하세요.",
+          { auth_code: "MEMBER_NOT_FOUND", member_id: String(member_id) }
+        );
+      }
+
+      const password_hash = hashPassword(password);
+      const iResp = await supabase.from("users").insert([{ member_id, password_hash }]);
+      if (iResp.error) {
+        return redirectWithMessage(req, "err", iResp.error.message);
+      }
+    } else {
+      if (!user) {
+        return redirectWithMessage(req, "err", "계정이 없습니다. 먼저 비밀번호를 설정해 주세요.");
+      }
+      if (!verifyPassword(password, user.password_hash)) {
+        return redirectWithMessage(req, "err", "아이디 또는 비밀번호가 올바르지 않습니다.");
+      }
     }
 
     const token = signSession(member_id, remember);

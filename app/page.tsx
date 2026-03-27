@@ -816,11 +816,20 @@ export default function Home(
     const url = new URL(window.location.href);
     const authError = url.searchParams.get("auth_error");
     const authOk = url.searchParams.get("auth_ok");
+    const authCode = url.searchParams.get("auth_code");
+    const memberId = url.searchParams.get("member_id");
     if (!authError && !authOk) return;
     if (authError) setToast({ type: "err", msg: authError });
     if (authOk) setToast({ type: "ok", msg: authOk });
+    if (authCode === "MEMBER_NOT_FOUND") {
+      setSetupMode(true);
+      setSignupMode(true);
+      if (memberId) setSignupForm((p) => ({ ...p, member_id: memberId }));
+    }
     url.searchParams.delete("auth_error");
     url.searchParams.delete("auth_ok");
+    url.searchParams.delete("auth_code");
+    url.searchParams.delete("member_id");
     window.history.replaceState({}, "", url.toString());
   }, []);
 
@@ -1463,6 +1472,7 @@ export default function Home(
     append("member_id", loginForm.member_id.trim());
     append("password", loginForm.password);
     append("remember", rememberMe ? "1" : "0");
+    append("action", setupMode ? "setup" : "login");
 
     document.body.appendChild(form);
     form.submit();
@@ -2129,8 +2139,7 @@ export default function Home(
                   style={{ marginTop: 12, display: "grid", gap: 10 }}
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (setupMode) submitLogin();
-                    else fallbackSubmitLoginForm();
+                    fallbackSubmitLoginForm();
                   }}
                 >
                   <input
