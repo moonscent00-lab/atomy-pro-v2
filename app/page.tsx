@@ -798,6 +798,7 @@ export default function Home(
   const [resetMode, setResetMode] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [loginForm, setLoginForm] = useState({ member_id: "", password: "" });
+  const [loginLoading, setLoginLoading] = useState(false);
   const [signupMode, setSignupMode] = useState(false);
   const [signupLoading, setSignupLoading] = useState(false);
   const [signupForm, setSignupForm] = useState({
@@ -1382,42 +1383,50 @@ export default function Home(
       return;
     }
     setToast(null);
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: setupMode ? "setup" : "login",
-        member_id: loginForm.member_id.trim(),
-        password: loginForm.password,
-        remember: rememberMe,
-      }),
-    });
-    const text = await res.text();
-    let json: any = null;
+    setLoginLoading(true);
     try {
-      json = text ? JSON.parse(text) : null;
-    } catch {
-      json = null;
-    }
-    if (!res.ok || !json?.ok) {
-      if (setupMode && json?.code === "MEMBER_NOT_FOUND") {
-        setSignupMode(true);
-        setSignupForm((p) => ({ ...p, member_id: loginForm.member_id.trim() }));
-        setToast({ type: "err", msg: "계보도에 없는 아이디입니다. 아래 간편가입 후 바로 시작하세요." });
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: setupMode ? "setup" : "login",
+          member_id: loginForm.member_id.trim(),
+          password: loginForm.password,
+          remember: rememberMe,
+        }),
+      });
+      const text = await res.text();
+      let json: any = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = null;
+      }
+      if (!res.ok || !json?.ok) {
+        if (setupMode && json?.code === "MEMBER_NOT_FOUND") {
+          setSignupMode(true);
+          setSignupForm((p) => ({ ...p, member_id: loginForm.member_id.trim() }));
+          setToast({ type: "err", msg: "계보도에 없는 아이디입니다. 아래 간편가입 후 바로 시작하세요." });
+          return;
+        }
+        setToast({ type: "err", msg: json?.error ?? `로그인 실패 (HTTP ${res.status})` });
         return;
       }
-      setToast({ type: "err", msg: json?.error ?? `로그인 실패 (HTTP ${res.status})` });
+      setTreeRoot(String(json.user.member_id));
+      setTreeData(null);
+      setSelectedNode(null);
+      setDriveChainL([]);
+      setDriveChainR([]);
+      setDriveAnchorId(null);
+      setAuthUser(json.user);
+      setToast({ type: "ok", msg: setupMode ? "비밀번호 설정 후 로그인 완료 ✅" : "로그인 완료 ✅" });
+      setMode("dashboard");
+    } catch (e: any) {
+      setToast({ type: "err", msg: "로그인 오류: " + (e?.message ?? String(e)) });
       return;
+    } finally {
+      setLoginLoading(false);
     }
-    setTreeRoot(String(json.user.member_id));
-    setTreeData(null);
-    setSelectedNode(null);
-    setDriveChainL([]);
-    setDriveChainR([]);
-    setDriveAnchorId(null);
-    setAuthUser(json.user);
-    setToast({ type: "ok", msg: setupMode ? "비밀번호 설정 후 로그인 완료 ✅" : "로그인 완료 ✅" });
-    setMode("dashboard");
   }
 
   async function submitQuickSignupFromLogin() {
@@ -1896,6 +1905,8 @@ export default function Home(
     const btn = (variant: "primary" | "ghost", disabled?: boolean) => {
       const isPrimary = variant === "primary";
       return {
+        appearance: "none",
+        WebkitAppearance: "none",
         border: `1px solid ${t.border}`,
         background: isPrimary ? t.text : t.surface,
         color: isPrimary ? t.surface : t.text,
@@ -1905,6 +1916,8 @@ export default function Home(
         fontWeight: 800,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.55 : 1,
+        touchAction: "manipulation",
+        userSelect: "none",
       } as React.CSSProperties;
     };
 
@@ -2072,7 +2085,13 @@ export default function Home(
                 아이디는 애터미 본인 아이디(8자리 숫자)입니다.
               </div>
               {!resetMode ? (
-                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                <form
+                  style={{ marginTop: 12, display: "grid", gap: 10 }}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    submitLogin();
+                  }}
+                >
                   <input
                     style={styles.input}
                     inputMode="numeric"
@@ -2096,10 +2115,11 @@ export default function Home(
                     로그인 유지
                   </label>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button style={styles.btn("primary")} onClick={submitLogin}>
-                      {setupMode ? "비밀번호 설정하고 로그인" : "로그인"}
+                    <button type="submit" style={styles.btn("primary", loginLoading)} disabled={loginLoading}>
+                      {loginLoading ? "처리 중..." : setupMode ? "비밀번호 설정하고 로그인" : "로그인"}
                     </button>
                     <button
+                      type="button"
                       style={styles.btn("ghost")}
                       onClick={() => {
                         setSetupMode((v) => !v);
@@ -2108,7 +2128,7 @@ export default function Home(
                     >
                       {setupMode ? "로그인으로" : "처음 비밀번호 설정"}
                     </button>
-                    <button style={styles.btn("ghost")} onClick={() => setResetMode(true)}>
+                    <button type="button" style={styles.btn("ghost")} onClick={() => setResetMode(true)}>
                       비밀번호 재설정
                     </button>
                   </div>
@@ -2145,18 +2165,24 @@ export default function Home(
                         onChange={(e) => setSignupForm((p) => ({ ...p, sponsor_id: e.target.value.replace(/\D/g, "").slice(0, 8) }))}
                       />
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <button style={styles.btn("primary", signupLoading)} disabled={signupLoading} onClick={submitQuickSignupFromLogin}>
+                        <button type="button" style={styles.btn("primary", signupLoading)} disabled={signupLoading} onClick={submitQuickSignupFromLogin}>
                           {signupLoading ? "가입 중..." : "간편가입 후 시작"}
                         </button>
-                        <button style={styles.btn("ghost")} onClick={() => setSignupMode(false)}>
+                        <button type="button" style={styles.btn("ghost")} onClick={() => setSignupMode(false)}>
                           닫기
                         </button>
                       </div>
                     </div>
                   ) : null}
-                </div>
+                </form>
               ) : (
-                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                <form
+                  style={{ marginTop: 12, display: "grid", gap: 10 }}
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    submitResetPassword();
+                  }}
+                >
                   <input
                     style={styles.input}
                     inputMode="numeric"
@@ -2183,17 +2209,17 @@ export default function Home(
                     }}
                   />
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button style={styles.btn("primary")} onClick={submitResetPassword}>
+                    <button type="submit" style={styles.btn("primary")}>
                       재설정 실행
                     </button>
-                    <button style={{ ...styles.btn("ghost"), border: "1px solid #DC2626", color: "#DC2626" }} onClick={clearPasswordAccount}>
+                    <button type="button" style={{ ...styles.btn("ghost"), border: "1px solid #DC2626", color: "#DC2626" }} onClick={clearPasswordAccount}>
                       비번 삭제(초기화)
                     </button>
-                    <button style={styles.btn("ghost")} onClick={() => setResetMode(false)}>
+                    <button type="button" style={styles.btn("ghost")} onClick={() => setResetMode(false)}>
                       돌아가기
                     </button>
                   </div>
-                </div>
+                </form>
               )}
             </div>
           </div>

@@ -54,12 +54,14 @@ export async function POST(req: NextRequest) {
 
     const token = signSession(member_id, remember);
     const res = NextResponse.json({ ok: true, user: { member_id } });
+    const maxAge = authCookieMaxAge(remember);
     res.cookies.set(authCookieName(), token, {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: authCookieMaxAge(remember),
+      maxAge,
+      expires: new Date(Date.now() + maxAge * 1000),
     });
     return res;
   } catch (e: any) {
