@@ -2085,6 +2085,7 @@ export default function Home(
               <div style={styles.help}>
                 아이디는 애터미 본인 아이디(8자리 숫자)입니다.
               </div>
+              {toast && <div style={toast.type === "ok" ? styles.toastOk : styles.toastErr}>{toast.msg}</div>}
               {!resetMode ? (
                 <form
                   style={{ marginTop: 12, display: "grid", gap: 10 }}
