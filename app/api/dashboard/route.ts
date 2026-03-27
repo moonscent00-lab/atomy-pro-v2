@@ -17,6 +17,23 @@ type MemberRow = {
 
 const THRESHOLDS = [300000, 700000, 1500000, 2400000, 6000000, 20000000, 50000000];
 
+function isMissingTableOrColumn(error: any, name: string) {
+  const msg = String(error?.message || "");
+  return msg.includes(name) || msg.includes(`relation "${name}" does not exist`) || msg.includes(`column ${name}`);
+}
+
+async function retry<T>(fn: () => PromiseLike<T>, count = 2): Promise<T> {
+  let lastError: unknown = null;
+  for (let i = 0; i < count; i += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
 function nextThreshold(left: number, right: number) {
   const base = Math.min(left, right);
   for (const t of THRESHOLDS) {
@@ -56,11 +73,13 @@ export async function GET(req: NextRequest) {
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     const supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-    const ownerResp = await supabase
-      .from("members")
-      .select("member_id, name, cumulative_pv, left_line_pv, right_line_pv, last_purchase_date")
-      .eq("member_id", ownerId)
-      .maybeSingle();
+    const ownerResp = await retry(() =>
+      supabase
+        .from("members")
+        .select("member_id, name, cumulative_pv, left_line_pv, right_line_pv, last_purchase_date")
+        .eq("member_id", ownerId)
+        .maybeSingle()
+    );
     if (ownerResp.error) return NextResponse.json({ ok: false, error: ownerResp.error.message }, { status: 500 });
     const owner = (ownerResp.data || null) as MemberRow | null;
     if (!owner) return NextResponse.json({ ok: false, error: "members에 본인 정보가 없습니다." }, { status: 400 });
@@ -72,45 +91,82 @@ export async function GET(req: NextRequest) {
     const firstHalfEnd = `${yearStr}-${monthStr}-15`;
     const secondHalfStart = `${yearStr}-${monthStr}-16`;
 
-    const firstHalf = await supabase
-      .from("pv_ledger")
-      .select("delta_pv")
-      .eq("member_id", ownerId)
-      .in("side", ["SELF", "L", "R"])
-      .gte("occurred_at", `${firstHalfStart}T00:00:00+09:00`)
-      .lte("occurred_at", `${firstHalfEnd}T23:59:59+09:00`);
-    const secondHalf = await supabase
-      .from("pv_ledger")
-      .select("delta_pv")
-      .eq("member_id", ownerId)
-      .in("side", ["SELF", "L", "R"])
-      .gte("occurred_at", `${secondHalfStart}T00:00:00+09:00`)
-      .lte("occurred_at", `${today}T23:59:59+09:00`);
-    if (firstHalf.error) return NextResponse.json({ ok: false, error: firstHalf.error.message }, { status: 500 });
-    if (secondHalf.error) return NextResponse.json({ ok: false, error: secondHalf.error.message }, { status: 500 });
+    let firstHalf: any = { data: [], error: null };
+    let secondHalf: any = { data: [], error: null };
+    try {
+      firstHalf = await retry(() =>
+        supabase
+          .from("pv_ledger")
+          .select("delta_pv")
+          .eq("member_id", ownerId)
+          .in("side", ["SELF", "L", "R"])
+          .gte("occurred_at", `${firstHalfStart}T00:00:00+09:00`)
+          .lte("occurred_at", `${firstHalfEnd}T23:59:59+09:00`)
+      );
+      secondHalf = await retry(() =>
+        supabase
+          .from("pv_ledger")
+          .select("delta_pv")
+          .eq("member_id", ownerId)
+          .in("side", ["SELF", "L", "R"])
+          .gte("occurred_at", `${secondHalfStart}T00:00:00+09:00`)
+          .lte("occurred_at", `${today}T23:59:59+09:00`)
+      );
+      if (firstHalf.error && !isMissingTableOrColumn(firstHalf.error, "pv_ledger")) {
+        return NextResponse.json({ ok: false, error: firstHalf.error.message }, { status: 500 });
+      }
+      if (secondHalf.error && !isMissingTableOrColumn(secondHalf.error, "pv_ledger")) {
+        return NextResponse.json({ ok: false, error: secondHalf.error.message }, { status: 500 });
+      }
+      if (firstHalf.error) firstHalf = { data: [], error: null };
+      if (secondHalf.error) secondHalf = { data: [], error: null };
+    } catch (error: any) {
+      const msg = String(error?.message ?? error ?? "");
+      if (!msg.toLowerCase().includes("fetch failed")) {
+        return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+      }
+    }
 
     const firstHalfPvRaw = (firstHalf.data || []).reduce((s: number, r: any) => s + pvSigned(r.delta_pv), 0);
     const secondHalfPvRaw = (secondHalf.data || []).reduce((s: number, r: any) => s + pvSigned(r.delta_pv), 0);
     const firstHalfPv = firstHalfPvRaw;
     const secondHalfPv = day >= 16 ? secondHalfPvRaw : 0;
 
-    const lastAllowanceResp = await supabase
-      .from("allowance_events")
-      .select("occurred_at")
-      .eq("member_id", ownerId)
-      .order("occurred_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const lastAllowanceDate = lastAllowanceResp.error ? null : (lastAllowanceResp.data?.occurred_at || null);
+    let lastAllowanceDate: string | null = null;
+    try {
+      const lastAllowanceResp = await retry(() =>
+        supabase
+          .from("allowance_events")
+          .select("occurred_at")
+          .eq("member_id", ownerId)
+          .order("occurred_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      );
+      if (!lastAllowanceResp.error) lastAllowanceDate = lastAllowanceResp.data?.occurred_at || null;
+    } catch {}
 
-    const favResp = await supabase
-      .from("favorites")
-      .select("id, target_member_id, bucket, memo, sort_order")
-      .eq("owner_member_id", ownerId)
-      .order("bucket", { ascending: true })
-      .order("sort_order", { ascending: true })
-      .order("id", { ascending: true });
-    if (favResp.error) return NextResponse.json({ ok: false, error: favResp.error.message }, { status: 500 });
+    let favResp: any = { data: [], error: null };
+    try {
+      favResp = await retry(() =>
+        supabase
+          .from("favorites")
+          .select("id, target_member_id, bucket, memo, sort_order")
+          .eq("owner_member_id", ownerId)
+          .order("bucket", { ascending: true })
+          .order("sort_order", { ascending: true })
+          .order("id", { ascending: true })
+      );
+      if (favResp.error && !isMissingTableOrColumn(favResp.error, "favorites")) {
+        return NextResponse.json({ ok: false, error: favResp.error.message }, { status: 500 });
+      }
+      if (favResp.error) favResp = { data: [], error: null };
+    } catch (error: any) {
+      const msg = String(error?.message ?? error ?? "");
+      if (!msg.toLowerCase().includes("fetch failed")) {
+        return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+      }
+    }
 
     const favRows = (favResp.data || []) as Array<{
       id: number;
@@ -123,24 +179,39 @@ export async function GET(req: NextRequest) {
 
     let targetMembers: MemberRow[] = [];
     if (targetIds.length > 0) {
-      const tResp = await supabase
-        .from("members")
-        .select("member_id, name, cumulative_pv, left_line_pv, right_line_pv, last_purchase_date")
-        .in("member_id", targetIds);
+      const tResp = await retry(() =>
+        supabase
+          .from("members")
+          .select("member_id, name, cumulative_pv, left_line_pv, right_line_pv, last_purchase_date")
+          .in("member_id", targetIds)
+      );
       if (tResp.error) return NextResponse.json({ ok: false, error: tResp.error.message }, { status: 500 });
       targetMembers = (tResp.data || []) as MemberRow[];
     }
     const targetMap = new Map<number, MemberRow>();
     for (const m of targetMembers) targetMap.set(Number(m.member_id), m);
 
-    const allowanceResp = targetIds.length
-      ? await supabase
-          .from("allowance_events")
-          .select("member_id, occurred_at")
-          .in("member_id", targetIds)
-          .order("occurred_at", { ascending: false })
-      : { data: [], error: null } as any;
-    if (allowanceResp.error) return NextResponse.json({ ok: false, error: allowanceResp.error.message }, { status: 500 });
+    let allowanceResp: any = { data: [], error: null };
+    if (targetIds.length) {
+      try {
+        allowanceResp = await retry(() =>
+          supabase
+            .from("allowance_events")
+            .select("member_id, occurred_at")
+            .in("member_id", targetIds)
+            .order("occurred_at", { ascending: false })
+        );
+        if (allowanceResp.error && !isMissingTableOrColumn(allowanceResp.error, "allowance_events")) {
+          return NextResponse.json({ ok: false, error: allowanceResp.error.message }, { status: 500 });
+        }
+        if (allowanceResp.error) allowanceResp = { data: [], error: null };
+      } catch (error: any) {
+        const msg = String(error?.message ?? error ?? "");
+        if (!msg.toLowerCase().includes("fetch failed")) {
+          return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+        }
+      }
+    }
     const allowanceMap = new Map<number, string>();
     for (const r of allowanceResp.data || []) {
       const id = Number(r.member_id);

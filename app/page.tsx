@@ -1619,6 +1619,8 @@ export default function Home(
         return;
       }
       setDashboardData(json as DashboardData);
+    } catch (e: any) {
+      setToast({ type: "err", msg: "대시보드 로드 오류: " + (e?.message ?? String(e)) });
     } finally {
       setDashboardLoading(false);
     }
