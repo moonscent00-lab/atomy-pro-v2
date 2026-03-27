@@ -2110,7 +2110,6 @@ export default function Home(
   return (
     <div style={styles.page}>
       <div style={styles.wrap}>
-        {toast && <div style={toast.type === "ok" ? styles.toastOk : styles.toastErr}>{toast.msg}</div>}
         {authLoading ? (
           <div style={{ minHeight: "80vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <div style={{ ...styles.panel, width: "100%", maxWidth: 460 }}>
@@ -2130,7 +2129,8 @@ export default function Home(
                   style={{ marginTop: 12, display: "grid", gap: 10 }}
                   onSubmit={(e) => {
                     e.preventDefault();
-                    submitLogin();
+                    if (setupMode) submitLogin();
+                    else fallbackSubmitLoginForm();
                   }}
                 >
                   <input
