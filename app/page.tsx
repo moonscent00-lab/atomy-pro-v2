@@ -813,6 +813,18 @@ export default function Home(
   const [favForm, setFavForm] = useState({ target_member_id: "", memo: "", bucket: "DAILY" as "DAILY" | "OCCASIONAL" });
 
   useEffect(() => {
+    const url = new URL(window.location.href);
+    const authError = url.searchParams.get("auth_error");
+    const authOk = url.searchParams.get("auth_ok");
+    if (!authError && !authOk) return;
+    if (authError) setToast({ type: "err", msg: authError });
+    if (authOk) setToast({ type: "ok", msg: authOk });
+    url.searchParams.delete("auth_error");
+    url.searchParams.delete("auth_ok");
+    window.history.replaceState({}, "", url.toString());
+  }, []);
+
+  useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [mode]);
 
@@ -1422,11 +1434,38 @@ export default function Home(
       setToast({ type: "ok", msg: setupMode ? "비밀번호 설정 후 로그인 완료 ✅" : "로그인 완료 ✅" });
       setMode("dashboard");
     } catch (e: any) {
-      setToast({ type: "err", msg: "로그인 오류: " + (e?.message ?? String(e)) });
+      const msg = e?.message ?? String(e);
+      if (String(msg).toLowerCase().includes("fetch failed")) {
+        fallbackSubmitLoginForm();
+        return;
+      }
+      setToast({ type: "err", msg: "로그인 오류: " + msg });
       return;
     } finally {
       setLoginLoading(false);
     }
+  }
+
+  function fallbackSubmitLoginForm() {
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "/api/auth/login-form";
+    form.style.display = "none";
+
+    const append = (name: string, value: string) => {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    };
+
+    append("member_id", loginForm.member_id.trim());
+    append("password", loginForm.password);
+    append("remember", rememberMe ? "1" : "0");
+
+    document.body.appendChild(form);
+    form.submit();
   }
 
   async function submitQuickSignupFromLogin() {
